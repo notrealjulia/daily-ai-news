@@ -194,6 +194,41 @@ def test_text_from_the_web_is_escaped_before_it_is_shown_as_markdown(raw, expect
     assert dashboard.escape_markdown(raw) == expected
 
 
+FEEDS_TOML = """\
+# a comment
+[[feeds]]
+name = "OpenAI"
+url = "https://openai.com/news/rss.xml"
+strategy = "fulltext"
+
+# [[feeds]]
+# name = "Disabled Source"
+
+[[feeds]]
+name = "Simon Willison"
+url = "https://simonwillison.net/atom/everything/"
+strategy = "feed_content"
+"""
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (FEEDS_TOML, "Sources monitored: OpenAI · Simon Willison"),  # file order; names only
+        ("# no feeds configured\n", None),
+        ("[[feeds]\nbroken", None),  # not valid TOML: no footer, no crash
+        (None, None),  # no such file
+    ],
+    ids=["names-only-in-file-order", "no-feeds", "invalid-toml", "missing-file"],
+)
+def test_the_footer_lists_the_source_names_from_feeds_toml(tmp_path, content, expected):
+    path = tmp_path / "feeds.toml"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+
+    assert dashboard.sources_caption(path) == expected
+
+
 # --- read-only, and no way to reach the pipeline -----------------------------
 
 
@@ -249,8 +284,9 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest
 
-    monkeypatch.chdir(tmp_path)  # the app reads ./ainews.db, like the command line does
+    monkeypatch.chdir(tmp_path)  # the app reads ./ainews.db and ./feeds.toml, like the command line does
     if with_data:
+        (tmp_path / "feeds.toml").write_text(FEEDS_TOML, encoding="utf-8")
         conn = db.connect(tmp_path / "ainews.db")
         add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
         conn.close()
@@ -270,3 +306,5 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     assert "Last 24 hours · 1 story from 1 article" in everything
     assert "View 1 story" in everything and "No stories in the last 24 hours." in everything
     assert "Spam" not in everything
+    assert "Sources monitored: OpenAI · Simon Willison" in everything
+    assert "openai.com" not in everything and "fulltext" not in everything  # names only

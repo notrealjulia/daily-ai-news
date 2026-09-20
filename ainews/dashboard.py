@@ -1,4 +1,4 @@
-"""What the read-only dashboard shows, worked out from SQLite.
+"""What the read-only dashboard shows, worked out from SQLite (and the source names in feeds.toml).
 
 `app.py` (Streamlit) only renders what this module returns. There is no SQL here (see
 db.py) and no Streamlit, so the logic can be tested without a browser. This module
@@ -13,6 +13,7 @@ that is only partly done is never shown.
 
 import re
 import sqlite3
+import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
@@ -193,6 +194,22 @@ def expander_label(story_count: int) -> str:
 
 def empty_text(window_hours: int) -> str:
     return f"No stories in the last {window_hours} hours."
+
+
+def sources_caption(path: str | Path = "feeds.toml") -> str | None:
+    """e.g. "Sources monitored: OpenAI · Google DeepMind", or None if there are none to show.
+
+    The names come straight from feeds.toml, the source of truth, in file order. It is
+    read here rather than through ingest.load_feeds, which would import the RSS parser.
+    A missing or unreadable file just means no footer.
+    """
+    try:
+        with open(path, "rb") as f:
+            feeds = tomllib.load(f).get("feeds", [])
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    names = [escape_markdown(feed["name"]) for feed in feeds if "name" in feed]
+    return f"Sources monitored: {' · '.join(names)}" if names else None
 
 
 def format_header(dashboard: Dashboard, tz: tzinfo | None = None) -> str:

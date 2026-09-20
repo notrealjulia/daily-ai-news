@@ -50,3 +50,6 @@ with page, st.container(gap="xsmall"):
                 with st.expander(dashboard.expander_label(category.story_count)):
                     for story in category.stories:
                         st.markdown(dashboard.story_markdown(story))
+
+    if sources := dashboard.sources_caption():
+        st.caption(sources)
