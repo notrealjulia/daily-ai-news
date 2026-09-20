@@ -9,8 +9,10 @@ from email.utils import format_datetime
 
 import feedparser
 import pytest
+from helpers import ok
 
 from ainews import db, ingest
+from ainews.__main__ import main
 
 UTC = timezone.utc
 NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC)
@@ -249,7 +251,7 @@ def test_stats_for_a_mixed_feed(conn):
     # Pre-existing row, so one of the in-window entries is a duplicate.
     db.insert_article(
         conn, source="src", url="http://x/1", title="new-1",
-        published_at=NOW - timedelta(hours=2), fetched_at=NOW, content=None,
+        published_at=NOW - timedelta(hours=2), fetched_at=NOW, feed_text=None,
     )  # fmt: skip
 
     stats = run(conn, parsed)
@@ -470,6 +472,7 @@ def test_repo_feeds_file_loads():
     names = [feed.name for feed in feeds]
     assert feeds and len(names) == len(set(names))
     assert all(feed.url.startswith("https://") for feed in feeds)
+    assert all(feed.strategy in ingest.STRATEGIES for feed in feeds)
 
 
 def test_feed_missing_a_field_is_reported(tmp_path):
@@ -477,3 +480,107 @@ def test_feed_missing_a_field_is_reported(tmp_path):
     path.write_text('[[feeds]]\nname = "no url here"\n')
     with pytest.raises(ValueError, match="feed #1 is missing 'url'"):
         ingest.load_feeds(path)
+
+
+# --- feeds.toml validation --------------------------------------------------
+
+
+def load_toml(tmp_path, text):
+    path = tmp_path / "feeds.toml"
+    path.write_text(text, encoding="utf-8")
+    return ingest.load_feeds(path)
+
+
+def test_a_feed_needs_a_strategy(tmp_path):
+    with pytest.raises(ValueError, match="feed #1 is missing 'strategy'"):
+        load_toml(tmp_path, '[[feeds]]\nname = "A"\nurl = "https://a"\n')
+
+
+def test_an_unknown_strategy_is_rejected_naming_the_options(tmp_path):
+    with pytest.raises(ValueError, match="strategy 'scrape'.*feed_content, fulltext"):
+        load_toml(tmp_path, '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "scrape"\n')
+
+
+def test_strategy_and_stop_markers_are_loaded(tmp_path):
+    feeds = load_toml(
+        tmp_path,
+        '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\nstop_markers = ["x", "y"]\n\n'
+        '[[feeds]]\nname = "B"\nurl = "https://b"\nstrategy = "feed_content"\n',
+    )
+    assert feeds == [
+        ingest.Feed("A", "https://a", "fulltext", ("x", "y")),
+        ingest.Feed("B", "https://b", "feed_content", ()),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ('strategy = "fulltext"\nstop_markers = "not a list"', "must be a list of strings"),
+        ('strategy = "fulltext"\nstop_markers = [1, 2]', "must be a list of strings"),
+        ('strategy = "feed_content"\nstop_markers = ["x"]', "only apply to strategy 'fulltext'"),
+    ],
+)
+def test_invalid_stop_markers_are_rejected(tmp_path, extra, message):
+    with pytest.raises(ValueError, match=message):
+        load_toml(tmp_path, f'[[feeds]]\nname = "A"\nurl = "https://a"\n{extra}\n')
+
+
+def test_two_feeds_cannot_share_a_name(tmp_path):
+    block = '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\n\n'
+    with pytest.raises(ValueError, match="more than one feed is named 'A'"):
+        load_toml(tmp_path, block + block)
+
+
+# --- a configured URL that isn't a feed must fail, not report "found 0" ------
+
+RECENT_ENTRY_FEED = (
+    "<rss version='2.0'><channel><title>Real</title><item><title>Fresh post</title>"
+    "<link>http://example.test/fresh</link><pubDate>{date}</pubDate></item></channel></rss>"
+)
+
+
+def test_fetching_a_web_page_as_a_feed_raises(server):
+    base, routes = server
+    routes["/site"] = ok("<html><body><h1>Just a website</h1><p>No feed here.</p></body></html>")
+
+    with pytest.raises(ingest.FeedError, match="not an RSS/Atom feed"):
+        ingest.fetch_feed(base + "/site")
+
+
+def test_a_real_feed_with_no_entries_is_not_a_failure(server):
+    base, routes = server
+    routes["/empty"] = ok("<rss version='2.0'><channel><title>Quiet</title></channel></rss>")
+
+    assert ingest.fetch_feed(base + "/empty").entries == []
+
+
+def test_ingest_command_fails_a_non_feed_and_still_ingests_the_other_feeds(server, tmp_path, capsys):
+    base, routes = server
+    routes["/site"] = ok("<html><body><h1>Just a website</h1></body></html>")
+    routes["/real.xml"] = ok(
+        RECENT_ENTRY_FEED.format(date=format_datetime(datetime.now(UTC) - timedelta(hours=1))),
+        "application/rss+xml",
+    )
+    feeds_path, db_path = tmp_path / "feeds.toml", tmp_path / "t.db"
+    feeds_path.write_text(  # the broken one comes first, to show it doesn't block what follows
+        f'[[feeds]]\nname = "Not a feed"\nurl = "{base}/site"\nstrategy = "fulltext"\n\n'
+        f'[[feeds]]\nname = "Real"\nurl = "{base}/real.xml"\nstrategy = "feed_content"\n',
+        encoding="utf-8",
+    )
+
+    code = main(["ingest", "--feeds", str(feeds_path), "--db", str(db_path)])
+    out = capsys.readouterr().out
+
+    assert code == 1
+    failed_line = next(line for line in out.splitlines() if line.startswith("Not a feed"))
+    assert "FAILED" in failed_line and "not an RSS/Atom feed" in failed_line
+    assert "found" not in failed_line  # not silently reported as "found 0"
+    real_line = next(line for line in out.splitlines() if line.startswith("Real"))
+    assert "found    1" in real_line and "inserted   1" in real_line
+    assert "1 feed(s) failed." in out
+
+    conn = db.connect(db_path)
+    rows = conn.execute("SELECT source, title, body_status FROM articles").fetchall()
+    assert [tuple(r) for r in rows] == [("Real", "Fresh post", "pending")]
+    conn.close()

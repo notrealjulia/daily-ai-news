@@ -8,6 +8,8 @@ dependencies = [
     "openai>=2.0",
     "python-dotenv>=1.0",
     "streamlit>=1.40",
+    "trafilatura>=2.0",
+    "lxml_html_clean>=0.4",  # Trafilatura's justext needs it now that lxml split it out
 ]
 
 [project.optional-dependencies]

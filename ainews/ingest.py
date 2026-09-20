@@ -29,10 +29,18 @@ class FeedError(Exception):
     """A feed could not be fetched or parsed."""
 
 
+# How a feed's article text is acquired (see ainews.extract).
+STRATEGIES = ("feed_content", "fulltext")
+
+
 @dataclass(frozen=True)
 class Feed:
     name: str
     url: str
+    strategy: str  # one of STRATEGIES
+    # fulltext only: extracted text is cut at the first paragraph equal to one of these
+    # (a site's trailing subscription block, say).
+    stop_markers: tuple[str, ...] = ()
 
 
 @dataclass
@@ -69,15 +77,28 @@ class FeedStats:
 
 
 def load_feeds(path: str | Path = DEFAULT_FEEDS_PATH) -> list[Feed]:
-    """Read the [[feeds]] tables from a TOML file."""
+    """Read and validate the [[feeds]] tables from a TOML file."""
     with open(path, "rb") as f:
         data = tomllib.load(f)
     feeds = []
     for i, item in enumerate(data.get("feeds", []), start=1):
         try:
-            feeds.append(Feed(name=item["name"], url=item["url"]))
+            name, url, strategy = item["name"], item["url"], item["strategy"]
         except KeyError as missing:
             raise ValueError(f"{path}: feed #{i} is missing {missing}") from None
+        if strategy not in STRATEGIES:
+            raise ValueError(
+                f"{path}: feed {name!r} has strategy {strategy!r}; "
+                f"expected one of: {', '.join(STRATEGIES)}"
+            )
+        stop_markers = item.get("stop_markers", [])
+        if not isinstance(stop_markers, list) or not all(isinstance(m, str) for m in stop_markers):
+            raise ValueError(f"{path}: feed {name!r}: stop_markers must be a list of strings")
+        if stop_markers and strategy != "fulltext":
+            raise ValueError(f"{path}: feed {name!r}: stop_markers only apply to strategy 'fulltext'")
+        if any(feed.name == name for feed in feeds):
+            raise ValueError(f"{path}: more than one feed is named {name!r}")
+        feeds.append(Feed(name, url, strategy, tuple(stop_markers)))
     return feeds
 
 
@@ -98,8 +119,16 @@ def fetch_feed(url: str) -> feedparser.FeedParserDict:
         raise FeedError(f"{url}: {e}") from e
 
     parsed = feedparser.parse(body)
+    # feedparser leaves `version` empty when the response isn't recognisably RSS or
+    # Atom, for example an ordinary web page. That is a failure, not a feed that
+    # happens to have zero entries (which has a version and simply no entries).
+    if not parsed.get("version"):
+        raise FeedError(
+            f"{url}: not an RSS/Atom feed (the response was not recognised as one; "
+            "it may be an ordinary web page)"
+        )
     # "bozo" means malformed XML. That's fine if we still got entries out of it,
-    # but if we got nothing it's most likely an HTML error page, not a feed.
+    # but if we got nothing the feed is broken.
     if parsed.bozo and not parsed.entries:
         raise FeedError(f"{url}: not a parseable feed ({parsed.bozo_exception})")
     return parsed
@@ -203,7 +232,7 @@ def _store_entry(
         title=(entry.get("title") or "").strip() or "(untitled)",
         published_at=published_at,
         fetched_at=now,
-        content=entry_content(entry),
+        feed_text=entry_content(entry),
     )
 
 
