@@ -2,7 +2,7 @@
 
 A personal AI news aggregator, built incrementally as a learning project. It collects AI news from RSS feeds, gets each article's text, uses an LLM to classify and summarize articles, groups articles about the same event into stories, and writes a short digest per category.
 
-**Status:** the pipeline stages below are implemented and tested. The Streamlit UI is **planned, not built**: `streamlit` is declared in `pyproject.toml`, but no UI code exists yet.
+**Status:** the pipeline stages below are implemented and tested, and a read-only Streamlit dashboard displays their results.
 
 ## Architecture
 
@@ -19,12 +19,14 @@ flowchart LR
 
     LLM["llm.py<br/>(the only code that talks to OpenAI)"]
     DB[("SQLite · ainews.db<br/>shared persistence layer")]
+    UI["Streamlit dashboard<br/>(app.py, read-only)"]
 
     RSS --> ING
     WEB --> EXT
     ENR & CLU & DIG -.-> LLM
     LLM -.-> OAI
     STAGES <-->|"every stage reads its input from<br/>and writes its output to SQLite"| DB
+    DB -.->|"read-only"| UI
 ```
 
 - **Stages hand off only through SQLite.** Each is an independent CLI command with no in-memory hand-off, so any stage can be rerun, or run on its own schedule, without the others. There is no scheduler or orchestrator yet; you run the commands yourself.
@@ -32,6 +34,7 @@ flowchart LR
 - **Results are versioned, not overwritten.** LLM output is keyed by model and prompt version, so a new prompt adds rows next to the old ones. A stage skips work it has already done.
 - **Failures are isolated and retryable.** One failing article, story or category never stops the others, and failed work is retried on the next run. There is no backoff, attempt limit or queue.
 - **Provider isolation.** Only `ainews/llm.py` imports the OpenAI SDK (a test enforces this); the stages talk to a small `StructuredLLM` interface.
+- **The dashboard is read-only by construction.** It opens SQLite through a read-only connection, and importing its code loads no pipeline or LLM module, so it cannot run a stage or call OpenAI (tests enforce both).
 
 ## Pipeline in detail
 
@@ -46,6 +49,7 @@ flowchart LR
     ENR["enrich<br/>body → category + summary"]
     CLU["cluster<br/>non-Spam articles → stories<br/>combined summary if 2+ articles"]
     DIG["digest<br/>stories → one digest per category"]
+    UI["Streamlit dashboard<br/>read-only"]
 
     ART1[("articles<br/>metadata · feed_text")]
     ART2[("articles<br/>+ body")]
@@ -56,6 +60,8 @@ flowchart LR
     INS -.->|"you pick the strategy"| FT
     FT -.->|"strategy"| EXT
     FT --> ING --> ART1 --> EXT --> ART2 --> ENR --> ENRT --> CLU --> STO --> DIG --> DGT
+    STO -.->|"read-only"| UI
+    DGT -.->|"read-only"| UI
     ENR & CLU & DIG -.-> LLM
 ```
 
@@ -69,6 +75,7 @@ flowchart LR
 | `enrich` | articles with a ready body | one call per article: category + summary | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories | `digests` | yes |
+| `streamlit run app.py` | the newest fully processed story run, its digests, and its articles' URLs | displays them; runs nothing | nothing (read-only connection) | no |
 
 ## Stage details
 
@@ -80,7 +87,9 @@ flowchart LR
 
 **cluster** (`stories.py`). Input is the last 24h (`published_at`, else `fetched_at`) of articles enriched under the current model and prompt, minus Spam. One call groups them from **title and summary only** (the model isn't shown categories, and category equality isn't required); it returns only groups of two or more, so anything unmentioned is its own story and uncertainty defaults to "separate". Single-article stories copy their article's category and summary; each multi-article story gets one more call for a combined summary and category. The result is an immutable **story run**; an unchanged input finds the existing run instead of regrouping, and failed story summaries are retried without regrouping.
 
-**digest** (`digest.py`). Works from a story run (latest, or `--run`) and **refuses to run if any story has no ready summary**. Each category with stories gets one digest made from its *stories*. The model receives the category's story count, the total non-Spam count, and the other categories' counts as context, but is told to synthesize developments rather than repeat numbers; a future UI is meant to show the counts, which are stored as `story_count` and `total_story_count`. Categories with no stories get no digest.
+**digest** (`digest.py`). Works from a story run (latest, or `--run`) and **refuses to run if any story has no ready summary**. Each category with stories gets one digest made from its *stories*. The model receives the category's story count, the total non-Spam count, and the other categories' counts as context, but is told to synthesize developments rather than repeat numbers; the dashboard shows the counts itself, from the stored `story_count` and `total_story_count`. Categories with no stories get no digest.
+
+**dashboard** (`app.py`, `dashboard.py`). A read-only page: a header (last updated in local time, the 24h window, story and article counts) and a 2×3 grid of the six non-Spam categories. Each cell shows `N of total stories`, the digest, and a collapsed list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title (stories have none of their own). `app.py` is a thin renderer with no SQL, pipeline or OpenAI code; `dashboard.py` builds what it shows from queries in `db.py`.
 
 **inspect-feed** (`inspect_feed.py`). Onboarding aid for a new feed. It reuses the same fetching and extraction code as `extract`, so it evaluates what the pipeline would actually do, and it leaves choosing a strategy (and editing `feeds.toml`) to you.
 
@@ -95,7 +104,7 @@ flowchart LR
 | `story_articles` | which articles form each story | unique `(run, article)`: an article is in one story per run |
 | `digests` | per category: `story_count`, `total_story_count`, `summary` | unique `(run, category, model, prompt_version)` |
 
-Foreign keys cascade on delete. The schema, migrations and every query live in `ainews/db.py`; older databases are upgraded in place on connect. SQLite runs in WAL mode, so a future UI could read while a stage writes.
+Foreign keys cascade on delete. The schema, migrations and every query live in `ainews/db.py`; older databases are upgraded in place on connect. SQLite runs in WAL mode, so the dashboard can read while a stage writes.
 
 ## Reruns and failure handling
 
@@ -113,7 +122,8 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 
 - **`feeds.toml`**: one `[[feeds]]` table per source, with `name`, `url`, `strategy` (`feed_content` or `fulltext`, required) and optional `stop_markers` (`fulltext` only). Six feeds use `fulltext`; Simon Willison's uses `feed_content`, because the feed already carries the whole post.
 - **`.env`**: `OPENAI_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
-- **Defaults in code**: the 24h window (`ingest.py`); model `gpt-5.6-luna` at low reasoning effort (`llm.py`); prompt versions: enrich `v3`, cluster `v1`, digest `v2`. LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
+- **`.streamlit/config.toml`**: dashboard settings: telemetry off, minimal toolbar, no first-run email prompt, it listens on `localhost` only, and the compact typography (base font and heading sizes) is set here rather than in CSS.
+- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` and the digest prompt version `v2` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); prompt versions: enrich `v3` (`enrich.py`), cluster `v1` (`stories.py`). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
@@ -128,6 +138,8 @@ python -m ainews extract
 python -m ainews enrich              # --limit N to cap a run
 python -m ainews cluster
 python -m ainews digest
+
+streamlit run app.py                 # the read-only dashboard; run it from the project folder
 
 python -m ainews inspect-feed <feed-url> --samples 3   # evaluate a new source
 pytest                                                 # offline; uses fakes, never the real API
@@ -146,13 +158,17 @@ ainews/
   digest.py       per-category digests
   llm.py          the only OpenAI code
   inspect_feed.py onboarding tool
+  dashboard.py    what the dashboard shows (no SQL, no Streamlit)
+  defaults.py     default model + digest prompt version (no imports)
+app.py            Streamlit dashboard: a thin, read-only renderer
+.streamlit/       dashboard settings
 feeds.toml        sources and their strategies
 tests/            offline tests
 ```
 
 ## Not built, and known limits
 
-- **Streamlit UI**: planned; it would read the latest story run, its stories and the digests.
+- **The dashboard is deliberately minimal**: no search, filters, charts or pipeline controls. Story titles are the earliest article's title, which can disagree with a multi-source story's combined summary.
 - **No scheduler**: stages are run by hand.
 - **Prompt rules that code doesn't enforce**: summary length (at most 4 sentences) and the digest's "no historical comparison" are asked for in the prompt, and reviewed on real output rather than checked in code.
 - **Failure reasons**: for enrichment, grouping and digest failures the reason appears only in that run's output. Only `extract` (`articles.body_error`) and combined story summaries (`stories.summary_error`) keep an error in the database.

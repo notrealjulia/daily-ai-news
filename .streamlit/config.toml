@@ -1,0 +1,16 @@
+# Streamlit settings for the read-only dashboard.
+[browser]
+gatherUsageStats = false   # no telemetry
+
+[client]
+toolbarMode = "minimal"    # hide Streamlit's own menu (which includes Settings)
+
+[server]
+address = "localhost"      # only this machine can open it (default is every network interface)
+showEmailPrompt = false    # don't ask for an email on the first run
+
+# Compact, dashboard-like typography, set here rather than with CSS.
+[theme]
+baseFontSize = 9           # root font size in px (default 16); rem-based spacing scales with it
+# Page title (h1), h2 (unused) and category headings (h3). Defaults are 2.75 / 2.25 / 1.75rem.
+headingFontSizes = ["1.6rem", "1.25rem", "1.1rem"]

@@ -17,9 +17,8 @@ from typing import Protocol
 import openai
 from dotenv import dotenv_values
 
-# The model is a proposal until it has been tried on real articles; it is stored with
-# every enrichment, so results from different models can sit side by side.
-DEFAULT_MODEL = "gpt-5.6-luna"
+from ainews.defaults import DEFAULT_MODEL
+
 # Reasoning models spend hidden "reasoning tokens" (billed as output) before answering.
 # Classifying and summarizing one article needs little of that, and the API default
 # (medium) would be wasted cost.

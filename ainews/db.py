@@ -546,3 +546,85 @@ def insert_digest(
          _format_timestamp(created_at)),
     )  # fmt: skip
     return cursor.rowcount == 1
+
+
+# --- Read-only access for the dashboard --------------------------------------
+
+
+def connect_readonly(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    """Open an existing database strictly read-only, for the dashboard.
+
+    Unlike connect(), this never creates the file, sets pragmas, creates tables or
+    migrates anything: SQLite itself refuses every write on this connection. Raises
+    sqlite3.OperationalError if the file doesn't exist.
+
+    (Opening a WAL-mode database this way may leave empty -wal/-shm sidecar files
+    next to it. They hold no data, and the database file itself is not touched.)
+    """
+    uri = Path(path).resolve().as_uri() + "?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def latest_dashboard_run(
+    conn: sqlite3.Connection, *, digest_model: str, digest_prompt_version: str
+) -> sqlite3.Row | None:
+    """The newest story run that is fully processed, or None.
+
+    Fully processed means every story has a ready summary AND every category that has
+    stories has a digest written with this model and prompt version. A run that is
+    only partly done is never returned, however new it is.
+    """
+    return conn.execute(
+        """
+        SELECT r.* FROM story_runs r
+        WHERE EXISTS (SELECT 1 FROM stories s WHERE s.run_id = r.id)
+          AND NOT EXISTS (
+              SELECT 1 FROM stories s
+              WHERE s.run_id = r.id AND s.summary_status != 'ready'
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM stories s
+              WHERE s.run_id = r.id
+                AND NOT EXISTS (
+                    SELECT 1 FROM digests d
+                    WHERE d.run_id = r.id AND d.category = s.category
+                      AND d.model = ? AND d.prompt_version = ?
+                )
+          )
+        ORDER BY r.id DESC
+        LIMIT 1
+        """,
+        (digest_model, digest_prompt_version),
+    ).fetchone()
+
+
+def story_article_links(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
+    """Every article of every story in a run, with its URL and time (published_at, or
+    fetched_at for dateless articles), earliest first within each story."""
+    return conn.execute(
+        """
+        SELECT sa.story_id, a.id AS article_id, a.source, a.title, a.url,
+               COALESCE(a.published_at, a.fetched_at) AS happened_at
+        FROM story_articles sa
+        JOIN articles a ON a.id = sa.article_id
+        WHERE sa.run_id = ?
+        ORDER BY sa.story_id, happened_at, a.id
+        """,
+        (run_id,),
+    ).fetchall()
+
+
+def digests_for_run(
+    conn: sqlite3.Connection, run_id: int, *, model: str, prompt_version: str
+) -> list[sqlite3.Row]:
+    """A run's digests for exactly this model and prompt version (at most one per category)."""
+    return conn.execute(
+        """
+        SELECT category, summary, created_at FROM digests
+        WHERE run_id = ? AND model = ? AND prompt_version = ?
+        ORDER BY id
+        """,
+        (run_id, model, prompt_version),
+    ).fetchall()

@@ -25,11 +25,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from ainews import db, enrich, ingest
+from ainews.defaults import DIGEST_PROMPT_VERSION
 from ainews.llm import StructuredLLM
 from ainews.stories import NON_SPAM_CATEGORIES, generate_validated
-
-# Bump when the prompt, the schema or the input format change.
-DIGEST_PROMPT_VERSION = "v2"  # v2: synthesis only; counts are context, not text to repeat
 
 SCHEMA_NAME = "category_digest"
 
