@@ -1,0 +1,30 @@
+[project]
+name = "ainews"
+version = "0.1.0"
+description = "Personal AI news aggregator: RSS -> SQLite -> LLM enrichment -> Streamlit"
+requires-python = ">=3.12"
+dependencies = [
+    "feedparser>=6.0",
+    "openai>=2.0",
+    "python-dotenv>=1.0",
+    "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]  # lets `pytest` import ainews without installing the package
+
+[tool.setuptools]
+# Explicit, because app.py sits next to the package and would otherwise
+# confuse setuptools' automatic discovery.
+packages = ["ainews"]

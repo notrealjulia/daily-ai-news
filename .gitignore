@@ -1,0 +1,18 @@
+# Environment / secrets
+.venv/
+.env
+
+# Local database (SQLite also creates -wal/-shm files in WAL mode)
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
