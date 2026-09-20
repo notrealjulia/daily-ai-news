@@ -35,6 +35,48 @@ url = "https://deepmind.google/blog/rss.xml"
 strategy = "fulltext"
 
 [[feeds]]
+name = "Google AI"
+url = "https://blog.google/innovation-and-ai/technology/ai/rss/"
+# The feed contains short teasers; full article pages extract substantially more content.
+strategy = "fulltext"
+
+[[feeds]]
+name = "Microsoft Research"
+url = "https://www.microsoft.com/en-us/research/feed"
+# The feed contains substantial full article content, exceeding the extracted webpage text.
+strategy = "feed_content"
+
+[[feeds]]
+name = "Ars Technica AI"
+url = "https://arstechnica.com/ai/feed/"
+# The feed contains article excerpts, while full-page extraction retrieves substantially more of the article content.
+strategy = "fulltext"
+
+[[feeds]]
+name = "Tech.eu"
+url = "https://tech.eu/feed/"
+# The feed contains substantial full article content and is slightly more complete than webpage extraction.
+strategy = "feed_content"
+
+[[feeds]]
+name = "TechSavvy"
+url = "https://techsavvy.media/feed/"
+# Danish-language tech news. The RSS feed contains short summaries only; webpage extraction provides the full article content.
+strategy = "fulltext"
+
+[[feeds]]
+name = "Bootstrapping"
+url = "https://bootstrapping.dk/feed/"
+# Danish-language startup and tech news. The RSS feed provides full article content, so webpage extraction is unnecessary.
+strategy = "feed_content"
+
+[[feeds]]
+name = "FW.MEDIA"
+url = "https://www.fw.media/feed"
+# English-language European technology and innovation news. The RSS feed contains short summaries only; webpage extraction provides the full article content.
+strategy = "fulltext"
+
+[[feeds]]
 name = "Hugging Face"
 url = "https://huggingface.co/blog/feed.xml"
 # The feed carries no text at all. Extraction can drop an article's first sentence.
