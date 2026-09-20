@@ -99,6 +99,9 @@ def test_an_old_database_is_upgraded_in_place_and_keeps_its_data(tmp_path):
     enrichment = conn.execute("SELECT * FROM enrichments").fetchone()
     assert "relevance" not in enrichment.keys() and "why_it_matters" not in enrichment.keys()
     assert (enrichment["category"], enrichment["summary"], enrichment["model"]) == ("Models", "s", "m")
+    # Databases from before clustering gain the story and digest tables.
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert {"story_runs", "stories", "story_articles", "digests"} <= tables
     conn.close()
 
 
@@ -195,3 +198,25 @@ def test_deleting_an_article_deletes_its_enrichments(conn):
     conn.execute("DELETE FROM articles WHERE id = ?", (a,))
 
     assert conn.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 0
+
+
+def test_a_story_run_holds_each_article_once_and_deleting_it_removes_its_stories_and_digests(conn):
+    a, b = add(conn, "http://x/a"), add(conn, "http://x/b")
+    run = db.create_story_run(
+        conn, model="m", prompt_version="v", enrichment_model="e", enrichment_prompt_version="v",
+        window_start=NOW, window_end=NOW, input_hash="h", created_at=NOW,
+    )  # fmt: skip
+    db.create_story(conn, run, article_ids=[a], category="Research", summary="s", grouping_reason=None)
+    db.insert_digest(
+        conn, run_id=run, category="Research", story_count=1, total_story_count=1,
+        summary="d", model="m", prompt_version="v", created_at=NOW,
+    )  # fmt: skip
+
+    with pytest.raises(sqlite3.IntegrityError):  # article `a` is already in a story of this run
+        db.create_story(conn, run, article_ids=[a, b], category=None, summary=None, grouping_reason="x")
+    conn.rollback()
+
+    conn.execute("DELETE FROM story_runs WHERE id = ?", (run,))
+    assert conn.execute("SELECT COUNT(*) FROM stories").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM story_articles").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0] == 0

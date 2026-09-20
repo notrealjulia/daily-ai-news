@@ -1,6 +1,7 @@
 """Command line entry point: `python -m ainews ingest | extract | enrich | inspect-feed`."""
 
 import argparse
+import sqlite3
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING
 from ainews import db, ingest
 
 if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs the OpenAI SDK
-    from ainews import enrich, extract
+    from ainews import digest, enrich, extract, stories
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -192,6 +193,175 @@ def _format_enrichment_summary(s: "enrich.EnrichmentSummary") -> list[str]:
     return lines
 
 
+def cmd_cluster(args: argparse.Namespace) -> int:
+    from ainews import enrich, llm, stories
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        client = llm.create(args.model or llm.DEFAULT_MODEL)
+    except llm.LLMConfigError as e:
+        print(f"Cannot cluster: {e}")
+        return 2
+    conn = db.connect(args.db)
+
+    now = datetime.now(timezone.utc)
+    hours = ingest.MAX_ARTICLE_AGE.total_seconds() / 3600
+    cutoff = now - ingest.MAX_ARTICLE_AGE
+    print(f"Model: {client.model}   story prompt: {stories.STORY_PROMPT_VERSION}")
+    print(f"Reads enrichments: {llm.DEFAULT_MODEL} / {enrich.PROMPT_VERSION}")
+    print(f"Window: last {hours:g}h (published, or first seen, at or after {cutoff:%Y-%m-%dT%H:%M:%SZ})\n")
+
+    summary = stories.run_clustering(
+        conn,
+        client,
+        enrichment_model=llm.DEFAULT_MODEL,
+        enrichment_prompt_version=enrich.PROMPT_VERSION,
+        now=now,
+        report=lambda outcome: print(_format_story_outcome(outcome), flush=True),
+    )
+
+    if summary.run_id is not None:
+        print()
+        for line in _format_story_listing(conn, summary.run_id):
+            print(line)
+    print()
+    for line in _format_clustering_summary(conn, summary):
+        print(line)
+    return 1 if summary.grouping_error or summary.failed else 0
+
+
+def _format_story_outcome(o: "stories.StoryOutcome") -> str:
+    label = f"story {o.story_id} ({len(o.titles)} articles)"
+    if o.ok:
+        return f"  {'ok':<7} {label}: combined summary written, category {o.category}"
+    return f"  {'FAILED':<7} {label}: {o.error}"
+
+
+def _format_story_listing(conn: sqlite3.Connection, run_id: int) -> list[str]:
+    titles = db.story_article_titles(conn, run_id)
+    lines = []
+    for story in db.stories_in_run(conn, run_id):
+        members = titles[story["id"]]
+        label = story["category"] if story["summary_status"] == "ready" else f"summary {story['summary_status']}"
+        if len(members) == 1:
+            source, title = members[0]
+            lines.append(f"  Story {story['id']} [{label}]  {source}: {title}")
+            continue
+        lines.append(f"  Story {story['id']} [{label}]  {len(members)} articles")
+        lines += [f"      {source}: {title}" for source, title in members]
+        if story["summary"]:
+            lines.append(f"      Summary: {story['summary']}")
+        lines.append(f"      Grouped because: {story['grouping_reason']}")
+    return lines
+
+
+def _format_clustering_summary(conn: sqlite3.Connection, s: "stories.ClusteringSummary") -> list[str]:
+    lines = [
+        "SUMMARY",
+        f"  articles in the window:   {s.in_window:>4}",
+        f"  excluded as Spam:         {s.spam_excluded:>4}",
+    ]
+    if s.not_enriched:
+        lines.append(
+            f"  not enriched yet:         {s.not_enriched:>4}  (run `python -m ainews enrich`)"
+        )
+    if not s.candidates:
+        lines.append("  Nothing to cluster: no enriched, non-Spam articles in the window.")
+        return lines
+    if s.grouping_error:
+        lines.append(f"  Grouping failed: {s.grouping_error}")
+        lines.append("  Nothing was stored; run `python -m ainews cluster` again.")
+        return lines
+
+    run_stories = db.stories_in_run(conn, s.run_id)
+    several = sum(1 for story in run_stories if story["article_count"] > 1)
+    lines.append(
+        f"  clustered:                {s.candidates:>4} articles into {len(run_stories)} stories "
+        f"({several} with several articles)"
+    )
+    lines.append(
+        f"  story run:                #{s.run_id}"
+        + (" (new)" if s.new_run else " (already existed, so not regrouped)")
+    )
+    lines.append(f"  combined summaries:       ok {len(s.succeeded)}, failed {len(s.failed)}")
+    if s.failed:
+        lines.append("")
+        lines.append("Retryable failures (the stories stay; run `python -m ainews cluster` again):")
+        for reason, count in Counter(o.error for o in s.failed).most_common():
+            lines.append(f"  {count} x {reason}")
+    return lines
+
+
+def cmd_digest(args: argparse.Namespace) -> int:
+    from ainews import digest, llm
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        client = llm.create(args.model or llm.DEFAULT_MODEL)
+    except llm.LLMConfigError as e:
+        print(f"Cannot write digests: {e}")
+        return 2
+    conn = db.connect(args.db)
+
+    run = db.get_story_run(conn, args.run)
+    if run is None:
+        print(
+            f"No story run with id {args.run}."
+            if args.run is not None
+            else "No story run to work from. Run `python -m ainews cluster` first."
+        )
+        return 1
+    print(f"Model: {client.model}   digest prompt: {digest.DIGEST_PROMPT_VERSION}")
+    print(f"Story run #{run['id']} (window ending {run['window_end']})\n")
+
+    summary = digest.run_digests(
+        conn,
+        client,
+        run_id=run["id"],
+        report=lambda outcome: print(_format_digest_outcome(outcome), flush=True),
+    )
+    if summary.incomplete_stories:
+        print(
+            f"Refusing to write digests: {summary.incomplete_stories} of {summary.total_stories} "
+            f"stories in run #{run['id']} have no ready summary.\n"
+            "Run `python -m ainews cluster` again to finish them first."
+        )
+        return 1
+
+    print()
+    for line in _format_digest_summary(summary):
+        print(line)
+    return 1 if summary.failed else 0
+
+
+def _format_digest_outcome(o: "digest.DigestOutcome") -> str:
+    stories = f"{o.story_count} stor{'y' if o.story_count == 1 else 'ies'}"
+    if o.ok:
+        return f"  {'ok':<7} {o.category:<20} {stories}"
+    return f"  {'FAILED':<7} {o.category:<20} {stories}  -  {o.error}"
+
+
+def _format_digest_summary(s: "digest.DigestSummary") -> list[str]:
+    lines = [
+        "SUMMARY",
+        f"  stories in the run:         {s.total_stories:>4}",
+        f"  digests written this run:   {len(s.succeeded):>4}",
+        f"  failed this run:            {len(s.failed):>4}",
+        f"  already had a digest:       {len(s.already_done):>4}  (skipped)",
+        f"  categories with no stories: {len(s.no_stories):>4}",
+    ]
+    if s.failed:
+        lines.append("")
+        lines.append("Retryable failures (nothing was stored; run `python -m ainews digest` again):")
+        for reason, count in Counter(o.error for o in s.failed).most_common():
+            lines.append(f"  {count} x {reason}")
+    return lines
+
+
 def _format_stats(s: ingest.FeedStats) -> str:
     return (
         f"found {s.found:>4} | in window {s.in_window:>3} | too old {s.too_old:>4} | "
@@ -236,6 +406,33 @@ def main(argv: list[str] | None = None) -> int:
         "--limit", type=_positive_int, help="enrich at most this many articles this run"
     )
     enrich_parser.set_defaults(func=cmd_enrich)
+
+    cluster_parser = subcommands.add_parser(
+        "cluster",
+        help="group the last 24h of enriched articles into stories",
+        description="Group enriched, non-Spam articles from the 24h window into stories, "
+        "keeping articles separate unless they clearly describe the same event. The result "
+        "is an immutable snapshot (a story run); repeating it with unchanged input finds "
+        "the existing run, and failed story summaries are retried.",
+    )
+    cluster_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    cluster_parser.add_argument(
+        "--model", default=None, help="OpenAI model id (default: the one set in ainews/llm.py)"
+    )
+    cluster_parser.set_defaults(func=cmd_cluster)
+
+    digest_parser = subcommands.add_parser(
+        "digest",
+        help="write one digest per category from a story run",
+        description="Write a short digest for each category of a finished story run (the "
+        "latest by default), from its stories. Refuses to run if the story run is incomplete.",
+    )
+    digest_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    digest_parser.add_argument(
+        "--model", default=None, help="OpenAI model id (default: the one set in ainews/llm.py)"
+    )
+    digest_parser.add_argument("--run", type=int, default=None, help="story run id (default: latest)")
+    digest_parser.set_defaults(func=cmd_digest)
 
     inspect_parser = subcommands.add_parser(
         "inspect-feed",

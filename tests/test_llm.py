@@ -207,6 +207,29 @@ def test_the_environment_takes_precedence_over_the_env_file(monkeypatch, tmp_pat
     assert llm.create()._client.api_key == "sk-from-the-environment"
 
 
+def test_only_llm_py_talks_to_the_openai_sdk():
+    # The provider boundary: swapping providers must only ever mean editing llm.py.
+    # Read the code as code (not text), so no way of writing an import can slip past.
+    import ast
+    from pathlib import Path
+
+    def imported_modules(path):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                yield from (alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                yield node.module
+
+    package = Path(llm.__file__).parent
+    offenders = [
+        path.name
+        for path in package.glob("*.py")
+        if path.name != "llm.py"
+        and any(module.split(".")[0] == "openai" for module in imported_modules(path))
+    ]
+    assert offenders == []
+
+
 def test_tests_can_never_see_the_real_key():
     # The autouse fixture in conftest.py replaces it; this guards the guard.
     assert llm.create()._client.api_key == "sk-test-not-a-real-key"

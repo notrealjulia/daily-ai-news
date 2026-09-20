@@ -60,6 +60,55 @@ CREATE TABLE IF NOT EXISTS enrichments (
     -- prompt_version adds a row instead of overwriting the old one.
     UNIQUE (article_id, model, prompt_version)
 );
+
+-- A story run is an immutable snapshot: the stories that one clustering pass made from
+-- the articles in the 24h window at that moment. It is identified by the models and
+-- prompt versions involved plus a fingerprint of the input, so repeating a run with
+-- unchanged input finds the existing one instead of making another.
+CREATE TABLE IF NOT EXISTS story_runs (
+    id                        INTEGER PRIMARY KEY,
+    model                     TEXT NOT NULL,   -- LLM that grouped and wrote combined summaries
+    prompt_version            TEXT NOT NULL,   -- version of the story prompts
+    enrichment_model          TEXT NOT NULL,   -- which enrichments were the input
+    enrichment_prompt_version TEXT NOT NULL,
+    window_start              TEXT NOT NULL,
+    window_end                TEXT NOT NULL,   -- when the run happened
+    input_hash                TEXT NOT NULL,   -- fingerprint of the enrichment ids clustered
+    created_at                TEXT NOT NULL,
+    UNIQUE (model, prompt_version, enrichment_model, enrichment_prompt_version, input_hash)
+);
+
+CREATE TABLE IF NOT EXISTS stories (
+    id              INTEGER PRIMARY KEY,
+    run_id          INTEGER NOT NULL REFERENCES story_runs (id) ON DELETE CASCADE,
+    category        TEXT,                      -- a non-Spam category; NULL until summary is ready
+    summary         TEXT,
+    summary_status  TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (summary_status IN ('pending', 'ready', 'failed')),
+    summary_error   TEXT,                      -- why the last attempt failed; NULL otherwise
+    grouping_reason TEXT                       -- why articles were grouped; NULL if just one
+);
+
+CREATE TABLE IF NOT EXISTS story_articles (
+    run_id     INTEGER NOT NULL,
+    story_id   INTEGER NOT NULL REFERENCES stories (id) ON DELETE CASCADE,
+    article_id INTEGER NOT NULL REFERENCES articles (id) ON DELETE CASCADE,
+    PRIMARY KEY (story_id, article_id),
+    UNIQUE (run_id, article_id)                -- an article is in at most one story per run
+);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id                INTEGER PRIMARY KEY,
+    run_id            INTEGER NOT NULL REFERENCES story_runs (id) ON DELETE CASCADE,
+    category          TEXT NOT NULL,
+    story_count       INTEGER NOT NULL,        -- stories in this category
+    total_story_count INTEGER NOT NULL,        -- all (non-Spam) stories in the run
+    summary           TEXT NOT NULL,
+    model             TEXT NOT NULL,
+    prompt_version    TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    UNIQUE (run_id, category, model, prompt_version)
+);
 """
 
 # Columns the first design of `enrichments` had and the current one does not.
@@ -271,4 +320,229 @@ def insert_enrichment(
         """,
         (article_id, category, summary, model, prompt_version, _format_timestamp(created_at)),
     )
+    return cursor.rowcount == 1
+
+
+# --- Story clustering --------------------------------------------------------
+
+
+def story_window_articles(
+    conn: sqlite3.Connection,
+    *,
+    window_start: datetime,
+    enrichment_model: str,
+    enrichment_prompt_version: str,
+) -> list[sqlite3.Row]:
+    """Every article in the window, with its enrichment for this version if it has one.
+
+    An article's time is its published_at, or fetched_at when the feed gave no date.
+    enrichment_id, category and summary are NULL for articles not enriched yet.
+    """
+    return conn.execute(
+        """
+        SELECT a.id AS article_id, a.source, a.title,
+               e.id AS enrichment_id, e.category, e.summary
+        FROM articles a
+        LEFT JOIN enrichments e
+               ON e.article_id = a.id AND e.model = ? AND e.prompt_version = ?
+        WHERE COALESCE(a.published_at, a.fetched_at) >= ?
+        ORDER BY a.id
+        """,
+        (enrichment_model, enrichment_prompt_version, _format_timestamp(window_start)),
+    ).fetchall()
+
+
+def find_story_run(
+    conn: sqlite3.Connection,
+    *,
+    model: str,
+    prompt_version: str,
+    enrichment_model: str,
+    enrichment_prompt_version: str,
+    input_hash: str,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT * FROM story_runs
+        WHERE model = ? AND prompt_version = ? AND enrichment_model = ?
+          AND enrichment_prompt_version = ? AND input_hash = ?
+        """,
+        (model, prompt_version, enrichment_model, enrichment_prompt_version, input_hash),
+    ).fetchone()
+
+
+def create_story_run(
+    conn: sqlite3.Connection,
+    *,
+    model: str,
+    prompt_version: str,
+    enrichment_model: str,
+    enrichment_prompt_version: str,
+    window_start: datetime,
+    window_end: datetime,
+    input_hash: str,
+    created_at: datetime,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO story_runs (model, prompt_version, enrichment_model,
+                                enrichment_prompt_version, window_start, window_end,
+                                input_hash, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            model, prompt_version, enrichment_model, enrichment_prompt_version,
+            _format_timestamp(window_start), _format_timestamp(window_end),
+            input_hash, _format_timestamp(created_at),
+        ),
+    )  # fmt: skip
+    return cursor.lastrowid
+
+
+def create_story(
+    conn: sqlite3.Connection,
+    run_id: int,
+    *,
+    article_ids: list[int],
+    category: str | None,
+    summary: str | None,
+    grouping_reason: str | None,
+) -> int:
+    """Add a story and link its articles. It is 'ready' if it already has a summary
+    (a single-article story copies its article's), otherwise 'pending'."""
+    cursor = conn.execute(
+        """
+        INSERT INTO stories (run_id, category, summary, summary_status, grouping_reason)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (run_id, category, summary, "ready" if summary is not None else "pending", grouping_reason),
+    )
+    story_id = cursor.lastrowid
+    for article_id in article_ids:
+        conn.execute(
+            "INSERT INTO story_articles (run_id, story_id, article_id) VALUES (?, ?, ?)",
+            (run_id, story_id, article_id),
+        )
+    return story_id
+
+
+def stories_needing_summary(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
+    """Stories of a run whose combined summary is not ready: never tried, or failed."""
+    return conn.execute(
+        "SELECT id FROM stories WHERE run_id = ? AND summary_status != 'ready' ORDER BY id",
+        (run_id,),
+    ).fetchall()
+
+
+def story_member_articles(
+    conn: sqlite3.Connection, story_id: int, *, enrichment_model: str, enrichment_prompt_version: str
+) -> list[sqlite3.Row]:
+    """A story's articles with the enrichment summaries the run was built from."""
+    return conn.execute(
+        """
+        SELECT a.id AS article_id, a.source, a.title, e.summary
+        FROM story_articles sa
+        JOIN articles a ON a.id = sa.article_id
+        JOIN enrichments e
+             ON e.article_id = a.id AND e.model = ? AND e.prompt_version = ?
+        WHERE sa.story_id = ?
+        ORDER BY a.id
+        """,
+        (enrichment_model, enrichment_prompt_version, story_id),
+    ).fetchall()
+
+
+def mark_story_ready(conn: sqlite3.Connection, story_id: int, *, category: str, summary: str) -> None:
+    conn.execute(
+        """
+        UPDATE stories
+        SET category = ?, summary = ?, summary_status = 'ready', summary_error = NULL
+        WHERE id = ?
+        """,
+        (category, summary, story_id),
+    )
+
+
+def mark_story_failed(conn: sqlite3.Connection, story_id: int, *, error: str) -> None:
+    """Record a failed attempt. The story stays eligible for the next run."""
+    conn.execute(
+        "UPDATE stories SET summary_status = 'failed', summary_error = ? WHERE id = ?",
+        (error, story_id),
+    )
+
+
+def get_story_run(conn: sqlite3.Connection, run_id: int | None = None) -> sqlite3.Row | None:
+    """A story run by id, or the most recent one when no id is given."""
+    if run_id is None:
+        return conn.execute("SELECT * FROM story_runs ORDER BY id DESC LIMIT 1").fetchone()
+    return conn.execute("SELECT * FROM story_runs WHERE id = ?", (run_id,)).fetchone()
+
+
+def stories_in_run(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT s.id, s.category, s.summary, s.summary_status, s.summary_error, s.grouping_reason,
+               (SELECT COUNT(*) FROM story_articles sa WHERE sa.story_id = s.id) AS article_count
+        FROM stories s
+        WHERE s.run_id = ?
+        ORDER BY s.id
+        """,
+        (run_id,),
+    ).fetchall()
+
+
+def story_article_titles(conn: sqlite3.Connection, run_id: int) -> dict[int, list[tuple[str, str]]]:
+    """story id -> [(source, title), ...] for every story in a run."""
+    titles: dict[int, list[tuple[str, str]]] = {}
+    for row in conn.execute(
+        """
+        SELECT sa.story_id, a.source, a.title
+        FROM story_articles sa JOIN articles a ON a.id = sa.article_id
+        WHERE sa.run_id = ?
+        ORDER BY sa.story_id, a.id
+        """,
+        (run_id,),
+    ):
+        titles.setdefault(row["story_id"], []).append((row["source"], row["title"]))
+    return titles
+
+
+# --- Digests -----------------------------------------------------------------
+
+
+def digest_exists(
+    conn: sqlite3.Connection, *, run_id: int, category: str, model: str, prompt_version: str
+) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM digests WHERE run_id = ? AND category = ? AND model = ? AND prompt_version = ?",
+            (run_id, category, model, prompt_version),
+        ).fetchone()
+        is not None
+    )
+
+
+def insert_digest(
+    conn: sqlite3.Connection,
+    *,
+    run_id: int,
+    category: str,
+    story_count: int,
+    total_story_count: int,
+    summary: str,
+    model: str,
+    prompt_version: str,
+    created_at: datetime,
+) -> bool:
+    """Store a digest. Returns False if one already exists for this run, category, model and prompt."""
+    cursor = conn.execute(
+        """
+        INSERT INTO digests (run_id, category, story_count, total_story_count, summary,
+                             model, prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (run_id, category, model, prompt_version) DO NOTHING
+        """,
+        (run_id, category, story_count, total_story_count, summary, model, prompt_version,
+         _format_timestamp(created_at)),
+    )  # fmt: skip
     return cursor.rowcount == 1
