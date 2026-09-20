@@ -51,10 +51,8 @@ CREATE INDEX IF NOT EXISTS idx_articles_published_at ON articles (published_at);
 CREATE TABLE IF NOT EXISTS enrichments (
     id             INTEGER PRIMARY KEY,
     article_id     INTEGER NOT NULL REFERENCES articles (id) ON DELETE CASCADE,
-    category       TEXT NOT NULL,         -- validated against the fixed list in llm.py
-    relevance      INTEGER NOT NULL CHECK (relevance BETWEEN 0 AND 10),
+    category       TEXT NOT NULL,         -- validated against the fixed list in enrich.py
     summary        TEXT NOT NULL,
-    why_it_matters TEXT NOT NULL,
     model          TEXT NOT NULL,
     prompt_version TEXT NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -63,6 +61,9 @@ CREATE TABLE IF NOT EXISTS enrichments (
     UNIQUE (article_id, model, prompt_version)
 );
 """
+
+# Columns the first design of `enrichments` had and the current one does not.
+RETIRED_ENRICHMENT_COLUMNS = ("relevance", "why_it_matters")
 
 
 def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
@@ -87,10 +88,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Upgrade an `articles` table created before content acquisition existed.
+    """Upgrade tables created by earlier versions, keeping their data.
 
-    Existing rows keep their data: `content` becomes `feed_text`, and every row starts
-    with body_status 'pending', so the next `extract` run picks them up.
+    articles:    `content` becomes `feed_text`, and every existing row starts with
+                 body_status 'pending', so the next `extract` run picks it up.
+    enrichments: the retired relevance and why_it_matters columns are dropped.
     """
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
     if "content" in columns:
@@ -98,6 +100,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for name, ddl in BODY_COLUMNS:
         if name not in columns:
             conn.execute(f"ALTER TABLE articles ADD COLUMN {name} {ddl}")
+
+    # Enrichment no longer scores relevance or explains why an article matters. Nothing
+    # ever wrote such rows, but if any exist they keep their category and summary.
+    enrichment_columns = {row["name"] for row in conn.execute("PRAGMA table_info(enrichments)")}
+    for name in RETIRED_ENRICHMENT_COLUMNS:
+        if name in enrichment_columns:
+            conn.execute(f"ALTER TABLE enrichments DROP COLUMN {name}")
 
 
 def _format_timestamp(moment: datetime) -> str:
@@ -197,3 +206,69 @@ def mark_body_failed(
         """,
         (error, _format_timestamp(checked_at), article_id),
     )
+
+
+# --- Enrichment --------------------------------------------------------------
+
+
+def articles_needing_enrichment(
+    conn: sqlite3.Connection, model: str, prompt_version: str, limit: int | None = None
+) -> list[sqlite3.Row]:
+    """Articles with a ready body and no enrichment yet for this model + prompt_version."""
+    return conn.execute(
+        """
+        SELECT id, source, title, url, body
+        FROM articles
+        WHERE body_status = 'ready'
+          AND NOT EXISTS (
+              SELECT 1 FROM enrichments e
+              WHERE e.article_id = articles.id AND e.model = ? AND e.prompt_version = ?
+          )
+        ORDER BY id
+        LIMIT ?
+        """,
+        (model, prompt_version, -1 if limit is None else limit),
+    ).fetchall()
+
+
+def enrichment_overview(conn: sqlite3.Connection, model: str, prompt_version: str) -> dict[str, int]:
+    """Counts: ready articles, how many of those are enriched, and articles without a ready body."""
+    counts = body_status_counts(conn)
+    enriched = conn.execute(
+        """
+        SELECT COUNT(*) FROM articles
+        WHERE body_status = 'ready'
+          AND EXISTS (
+              SELECT 1 FROM enrichments e
+              WHERE e.article_id = articles.id AND e.model = ? AND e.prompt_version = ?
+          )
+        """,
+        (model, prompt_version),
+    ).fetchone()[0]
+    return {
+        "ready": counts["ready"],
+        "enriched": enriched,
+        "not_ready": counts["pending"] + counts["failed"],
+    }
+
+
+def insert_enrichment(
+    conn: sqlite3.Connection,
+    *,
+    article_id: int,
+    category: str,
+    summary: str,
+    model: str,
+    prompt_version: str,
+    created_at: datetime,
+) -> bool:
+    """Store an enrichment. Returns False if this article already has one for the pair."""
+    cursor = conn.execute(
+        """
+        INSERT INTO enrichments (article_id, category, summary, model, prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (article_id, model, prompt_version) DO NOTHING
+        """,
+        (article_id, category, summary, model, prompt_version, _format_timestamp(created_at)),
+    )
+    return cursor.rowcount == 1

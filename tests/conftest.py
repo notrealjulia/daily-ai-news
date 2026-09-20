@@ -7,6 +7,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def no_real_openai_key(monkeypatch, tmp_path_factory):
+    """No test may ever see the real API key, whatever is in .env or the environment.
+
+    A dummy key is set, and the .env location is pointed at a file that doesn't exist.
+    Even a test that accidentally reached the network would fail authentication rather
+    than spend money.
+    """
+    from ainews import llm
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
+    monkeypatch.setattr(llm, "ENV_PATH", tmp_path_factory.getbasetemp() / "no-such-dir" / ".env")
+
+
 class Routes(dict):
     """path -> (status, headers, body bytes). `hits` counts requests served per path."""
 

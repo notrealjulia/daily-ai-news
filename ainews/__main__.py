@@ -1,4 +1,4 @@
-"""Command line entry point: `python -m ainews ingest | extract | inspect-feed`."""
+"""Command line entry point: `python -m ainews ingest | extract | enrich | inspect-feed`."""
 
 import argparse
 import sys
@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 
 from ainews import db, ingest
 
-if TYPE_CHECKING:  # extract needs Trafilatura, so it is only imported when actually used
-    from ainews import extract
+if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs the OpenAI SDK
+    from ainews import enrich, extract
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -119,6 +119,79 @@ def _format_extraction_summary(s: "extract.ExtractionSummary") -> list[str]:
     return lines
 
 
+def cmd_enrich(args: argparse.Namespace) -> int:
+    # Imported here so that `ingest` runs without needing the OpenAI SDK installed.
+    from ainews import enrich, llm
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        client = llm.create(args.model or llm.DEFAULT_MODEL)
+    except llm.LLMConfigError as e:
+        print(f"Cannot enrich: {e}")
+        return 2
+    conn = db.connect(args.db)
+
+    overview = db.enrichment_overview(conn, client.model, enrich.PROMPT_VERSION)
+    waiting = overview["ready"] - overview["enriched"]
+    print(f"Model: {client.model}   prompt_version: {enrich.PROMPT_VERSION}")
+    print(
+        f"{overview['enriched']} article(s) already enriched; {waiting} waiting"
+        + (f" (processing at most {args.limit})" if args.limit is not None else "")
+        + f"; {overview['not_ready']} without a ready body\n"
+    )
+
+    summary = enrich.run_enrichment(
+        conn,
+        client,
+        limit=args.limit,
+        report=lambda outcome: print(_format_enrich_outcome(outcome), flush=True),
+    )
+
+    print()
+    for line in _format_enrichment_summary(summary):
+        print(line)
+    return 1 if summary.failed else 0
+
+
+def _positive_int(text: str) -> int:
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def _format_enrich_outcome(o: "enrich.Outcome") -> str:
+    title = o.title if len(o.title) <= 50 else o.title[:49] + "…"
+    if o.ok:
+        return f"  {'ok':<7} {o.category:<19} {o.source[:16]:<16}  {title}"
+    return f"  {'FAILED':<7} {o.source[:16]:<16}  {title}  -  {o.error}"
+
+
+def _format_enrichment_summary(s: "enrich.EnrichmentSummary") -> list[str]:
+    by_category = Counter(o.category for o in s.succeeded)
+    breakdown = ", ".join(f"{name} {count}" for name, count in sorted(by_category.items()))
+    lines = [
+        "SUMMARY",
+        f"  already enriched (skipped): {s.already_enriched:>4}",
+        f"  enriched this run:          {len(s.succeeded):>4}" + (f"  ({breakdown})" if breakdown else ""),
+        f"  failed this run:            {len(s.failed):>4}",
+    ]
+    if s.left_for_later:
+        lines.append(f"  left for a later run:       {s.left_for_later:>4}  (--limit)")
+    if s.not_ready:
+        lines.append(
+            f"  no ready body yet:          {s.not_ready:>4}  (run `python -m ainews extract`)"
+        )
+    if s.failed:
+        lines.append("")
+        lines.append("Retryable failures (nothing was stored; run `python -m ainews enrich` again):")
+        for reason, count in Counter(o.error for o in s.failed).most_common():
+            lines.append(f"  {count} x {reason}")
+    return lines
+
+
 def _format_stats(s: ingest.FeedStats) -> str:
     return (
         f"found {s.found:>4} | in window {s.in_window:>3} | too old {s.too_old:>4} | "
@@ -147,6 +220,22 @@ def main(argv: list[str] | None = None) -> int:
     extract_parser.add_argument("--feeds", type=Path, default=ingest.DEFAULT_FEEDS_PATH)
     extract_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
     extract_parser.set_defaults(func=cmd_extract)
+
+    enrich_parser = subcommands.add_parser(
+        "enrich",
+        help="classify and summarize articles that have a ready body, using an LLM",
+        description="For each article with a ready body, ask the LLM for a category and a "
+        "summary and store them. An article is enriched once per model and prompt version; "
+        "failed articles store nothing and are retried on the next run.",
+    )
+    enrich_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    enrich_parser.add_argument(
+        "--model", default=None, help="OpenAI model id (default: the one set in ainews/llm.py)"
+    )
+    enrich_parser.add_argument(
+        "--limit", type=_positive_int, help="enrich at most this many articles this run"
+    )
+    enrich_parser.set_defaults(func=cmd_enrich)
 
     inspect_parser = subcommands.add_parser(
         "inspect-feed",

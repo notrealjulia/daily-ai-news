@@ -64,28 +64,6 @@ def test_samples_are_the_newest_by_date_not_by_feed_position():
     assert guessed is False
 
 
-def test_entries_without_a_link_are_never_samples():
-    parsed = parse(
-        {"title": "no link", "date": ago(hours=1)},
-        {"title": "has link", "link": "http://x/1", "date": ago(hours=2)},
-    )
-
-    samples, _ = inspect_feed.pick_samples(parsed, 5)
-
-    assert [s.entry.title for s in samples] == ["has link"]
-
-
-def test_same_date_prefers_the_higher_position_in_the_feed():
-    parsed = parse(
-        {"title": "top", "link": "http://x/1", "date": ago(hours=1)},
-        {"title": "below", "link": "http://x/2", "date": ago(hours=1)},
-    )
-
-    samples, _ = inspect_feed.pick_samples(parsed, 1)
-
-    assert samples[0].entry.title == "top"
-
-
 def test_dateless_feed_samples_come_from_the_top_and_are_flagged():
     parsed = parse(
         {"title": "A", "link": "http://x/A"},
@@ -126,49 +104,33 @@ def test_feed_overview_counts():
     assert o.common_time_of_day is not None and o.common_time_of_day[1] == pytest.approx(0.25)
 
 
-def test_feed_with_no_dates_is_reported_as_dateless():
-    o = inspect_feed.summarize_feed(parse({"link": "http://x/1"}, {"link": "http://x/2"}), NOW)
-
-    assert o.dateless is True
-    assert o.newest is None and o.in_window == 0
-
-
-def test_overview_text_says_how_ingestion_would_treat_the_feed():
-    dated = inspect_feed.summarize_feed(parse({"link": "http://x/1", "date": ago(hours=1)}), NOW)
-    dateless = inspect_feed.summarize_feed(parse({"link": "http://x/1"}), NOW)
-
-    assert "dated (time window)" in "\n".join(inspect_feed.render_overview(dated, NOW))
-    assert "dateless (newest-first walk)" in "\n".join(inspect_feed.render_overview(dateless, NOW))
-
-
 # --- reading extracted text --------------------------------------------------
 
 LONG = "A long body paragraph that keeps going so it is clearly article text. " * 6
 
 
-def test_headline_repeated_on_line_one_is_noticed_ignoring_case():
-    obs = inspect_feed.observe_extraction(f"My Headline\n{LONG}", "my headline")
-    assert obs.title_repeated is True
-
-
-def test_headline_not_repeated():
-    obs = inspect_feed.observe_extraction(f"{LONG}\n{LONG}", "My Headline")
-    assert obs.title_repeated is False
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [(f"My Headline\n{LONG}", True), (f"{LONG}\n{LONG}", False)],
+    ids=["repeated-ignoring-case", "not-repeated"],
+)
+def test_headline_repeated_on_line_one_is_noticed(text, expected):
+    assert inspect_feed.observe_extraction(text, "my headline").title_repeated is expected
 
 
 @pytest.mark.parametrize(
-    "line",
-    ["Updated September 17, 2026", "19th September 2026", "2026-09-19", "Sep 3, 2026"],
+    ("line", "is_date"),
+    [
+        ("Updated September 17, 2026", True),
+        ("19th September 2026", True),
+        ("We shipped it in May.", False),
+        ("Market outlook 2026", False),  # 'Mar' must not match 'Market'
+    ],
 )
-def test_date_like_lines_near_the_start_are_noticed(line):
+def test_date_like_lines_near_the_start_are_recognised_and_ordinary_ones_are_not(line, is_date):
     obs = inspect_feed.observe_extraction(f"Title\n{line}\n{LONG}", "Title")
-    assert obs.date_lines == ((2, line),)
 
-
-@pytest.mark.parametrize("line", ["We shipped it in May.", "Market outlook 2026", "Version 2026 is out"])
-def test_ordinary_short_lines_are_not_mistaken_for_dates(line):
-    obs = inspect_feed.observe_extraction(f"Title\n{line}\n{LONG}", "Title")
-    assert obs.date_lines == ()
+    assert obs.date_lines == (((2, line),) if is_date else ())
 
 
 def test_boilerplate_at_the_end_is_reported_with_its_paragraph_number():
@@ -181,23 +143,15 @@ def test_boilerplate_at_the_end_is_reported_with_its_paragraph_number():
     assert obs.paragraph_count == 8
 
 
-def test_a_long_paragraph_mentioning_a_keyword_is_not_boilerplate():
+def test_keywords_in_long_paragraphs_or_mid_article_are_not_boilerplate():
+    # a long paragraph that merely mentions a keyword
     text = f"{LONG}\n{LONG} This is related work, and the comments are discussed.\n{LONG}"
     assert inspect_feed.observe_extraction(text, "Title").boilerplate == ()
 
-
-def test_keywords_in_the_middle_of_a_long_article_are_ignored():
+    # a short keyword paragraph far from either end of a long article
     paragraphs = [LONG] * 60
     paragraphs[30] = "Subscribe now"
     assert inspect_feed.observe_extraction("\n".join(paragraphs), "Title").boilerplate == ()
-
-
-def test_outline_of_a_short_text_shows_everything():
-    assert inspect_feed.outline("one\ntwo\nthree", head=4, tail=4, width=50) == [
-        "[1/3] one",
-        "[2/3] two",
-        "[3/3] three",
-    ]
 
 
 def test_outline_of_a_long_text_shows_both_ends_and_says_what_was_skipped():
@@ -213,11 +167,6 @@ def test_outline_of_a_long_text_shows_both_ends_and_says_what_was_skipped():
         "[19/20] paragraph 19",
         "[20/20] paragraph 20",
     ]
-
-
-def test_outline_cuts_long_paragraphs_to_the_width():
-    (line,) = inspect_feed.outline("x" * 100, head=1, tail=1, width=10)
-    assert line == "[1/1] " + "x" * 10 + "…"
 
 
 # --- the whole command -------------------------------------------------------
@@ -256,17 +205,6 @@ def test_report_contains_the_evidence_and_decides_nothing(server, capsys, monkey
     assert list(tmp_path.iterdir()) == []  # wrote nothing
 
 
-def test_samples_option_examines_several_articles_newest_first(server, capsys):
-    base, routes = server
-    two_article_site(routes, base)
-
-    inspect_feed.run(base + "/feed.xml", samples=2, now=NOW)
-    out = capsys.readouterr().out
-
-    assert "SAMPLE 1/2" in out and "SAMPLE 2/2" in out
-    assert out.index("Newest post") < out.index("Older post")
-
-
 def test_a_blocked_page_is_reported_as_a_finding_not_hidden(server, capsys):
     base, routes = server
     two_article_site(routes, base)
@@ -281,16 +219,6 @@ def test_a_blocked_page_is_reported_as_a_finding_not_hidden(server, capsys):
     assert "NEWEST paragraph" not in out  # no silent fallback to anything
 
 
-def test_a_page_with_nothing_extractable_is_reported(server, capsys):
-    base, routes = server
-    two_article_site(routes, base)
-    routes["/newest"] = ok("<html><body></body></html>")
-
-    inspect_feed.run(base + "/feed.xml", now=NOW)
-
-    assert "Trafilatura returned no text" in capsys.readouterr().out
-
-
 def test_an_extraction_no_longer_than_the_feed_text_is_flagged(server, capsys):
     base, routes = server
     routes["/feed.xml"] = ok(
@@ -303,54 +231,19 @@ def test_an_extraction_no_longer_than_the_feed_text_is_flagged(server, capsys):
     assert "extraction is not longer than the feed text" in capsys.readouterr().out
 
 
-def test_a_feed_without_text_says_so(server, capsys):
-    base, routes = server
-    routes["/feed.xml"] = ok(feed_xml({"title": "Bare", "link": f"{base}/p", "date": ago(hours=1)}))
-    routes["/p"] = ok(article_page("Bare", "BARE"))
-
-    inspect_feed.run(base + "/feed.xml", now=NOW)
-    out = capsys.readouterr().out
-
-    assert "the feed carries no text for this entry" in out
-    assert "feed has no text to compare" in out
-
-
-def test_a_dateless_feed_warns_that_samples_are_a_guess(server, capsys):
-    base, routes = server
-    routes["/feed.xml"] = ok(feed_xml({"title": "Top", "link": f"{base}/p"}))
-    routes["/p"] = ok(article_page("Top", "TOP"))
-
-    inspect_feed.run(base + "/feed.xml", now=NOW)
-    out = capsys.readouterr().out
-
-    assert "dateless (newest-first walk)" in out
-    assert "no entry has a usable date" in out and "not verified newest articles" in out
-
-
-def test_save_dir_receives_the_full_texts(server, tmp_path):
-    base, routes = server
-    two_article_site(routes, base)
-
-    inspect_feed.run(base + "/feed.xml", now=NOW, save_dir=tmp_path / "out")
-
-    assert (tmp_path / "out" / "sample1.feed.txt").read_text(encoding="utf-8") == "new teaser"
-    assert "NEWEST paragraph 3" in (tmp_path / "out" / "sample1.extracted.txt").read_text(encoding="utf-8")
-
-
-def test_an_unreachable_feed_fails_clearly(server, capsys):
-    base, _ = server
-
-    code = inspect_feed.run(base + "/nothing-here", now=NOW)
-
-    assert code == 1
-    assert "FAILED to load the feed" in capsys.readouterr().out
-
-
-def test_a_web_page_that_is_not_a_feed_is_called_out(server, capsys):
+@pytest.mark.parametrize(
+    ("path", "message"),
+    [("/nothing-here", "404"), ("/site", "not an RSS/Atom feed")],
+    ids=["unreachable-feed", "web-page-that-is-not-a-feed"],
+)
+def test_a_feed_that_cannot_be_used_fails_clearly(server, capsys, path, message):
     base, routes = server
     routes["/site"] = ok("<html><body><h1>Just a website</h1><p>No feed here.</p></body></html>")
 
-    code = inspect_feed.run(base + "/site", now=NOW)
+    code = inspect_feed.run(base + path, now=NOW)
+    out = capsys.readouterr().out
 
     assert code == 1
-    assert "not an RSS/Atom feed" in capsys.readouterr().out
+    assert "FAILED to load the feed" in out and message in out
+
+

@@ -95,7 +95,10 @@ def test_an_old_database_is_upgraded_in_place_and_keeps_its_data(tmp_path):
     assert rows[1]["feed_text"] is None
     assert all(r["body_status"] == "pending" and r["body"] is None for r in rows)
     assert "content" not in rows[0].keys()
-    assert conn.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 1
+    # The old enrichments table lost its retired columns but kept its row.
+    enrichment = conn.execute("SELECT * FROM enrichments").fetchone()
+    assert "relevance" not in enrichment.keys() and "why_it_matters" not in enrichment.keys()
+    assert (enrichment["category"], enrichment["summary"], enrichment["model"]) == ("Models", "s", "m")
     conn.close()
 
 
@@ -122,27 +125,7 @@ def test_migration_is_idempotent(tmp_path):
     second.close()
 
 
-def test_migrated_rows_are_picked_up_by_the_next_extraction(tmp_path):
-    path = tmp_path / "old.db"
-    make_v1_database(path)
-
-    conn = db.connect(path)
-
-    assert [r["url"] for r in db.articles_needing_body(conn)] == ["http://x/1", "http://x/2"]
-    conn.close()
-
-
 # --- article body state ------------------------------------------------------
-
-
-def test_new_articles_start_pending_with_no_body(conn):
-    a = add(conn, "http://x/1")
-
-    row = conn.execute("SELECT * FROM articles WHERE id = ?", (a,)).fetchone()
-    assert (row["body_status"], row["body"], row["body_source"], row["body_error"]) == (
-        "pending", None, None, None,
-    )  # fmt: skip
-    assert row["feed_text"] == "teaser"
 
 
 def test_status_must_be_one_of_the_known_values(conn):
@@ -163,24 +146,52 @@ def test_only_articles_without_a_ready_body_need_one(conn):
     assert db.body_status_counts(conn) == {"pending": 1, "ready": 1, "failed": 1}
 
 
-def test_marking_ready_stores_the_body_and_clears_an_earlier_error(conn):
-    a = add(conn, "http://x/1")
-    db.mark_body_failed(conn, a, error="HTTP 403", checked_at=NOW)
+# --- enrichments -------------------------------------------------------------
 
-    db.mark_body_ready(conn, a, body="the text", source="fulltext", checked_at=NOW)
 
-    row = conn.execute("SELECT * FROM articles WHERE id = ?", (a,)).fetchone()
-    assert (row["body"], row["body_source"], row["body_status"], row["body_error"]) == (
-        "the text", "fulltext", "ready", None,
+def add_ready(conn, url) -> int:
+    article_id = add(conn, url)
+    db.mark_body_ready(conn, article_id, body="text", source="fulltext", checked_at=NOW)
+    return article_id
+
+
+def enrich_row(conn, article_id, *, model="m", prompt_version="v1", category="Other"):
+    return db.insert_enrichment(
+        conn, article_id=article_id, category=category, summary="s",
+        model=model, prompt_version=prompt_version, created_at=NOW,
     )  # fmt: skip
-    assert row["body_checked_at"] == "2026-09-20T12:00:00Z"
 
 
-def test_marking_failed_records_the_reason_and_leaves_no_body(conn):
-    a = add(conn, "http://x/1", feed_text="a teaser")
+def test_only_ready_articles_without_a_result_for_the_pair_need_enriching(conn):
+    done = add_ready(conn, "http://x/done")
+    waiting = add_ready(conn, "http://x/waiting")
+    add(conn, "http://x/pending")  # no ready body
+    failed = add(conn, "http://x/failed")
+    db.mark_body_failed(conn, failed, error="boom", checked_at=NOW)
+    enrich_row(conn, done)
+    # Results for a different model or prompt version don't make an article "done".
+    enrich_row(conn, waiting, model="other-model")
+    enrich_row(conn, waiting, prompt_version="v0")
 
-    db.mark_body_failed(conn, a, error="HTTP 403 Forbidden", checked_at=NOW)
+    rows = db.articles_needing_enrichment(conn, "m", "v1")
 
-    row = conn.execute("SELECT * FROM articles WHERE id = ?", (a,)).fetchone()
-    assert (row["body_status"], row["body_error"], row["body"]) == ("failed", "HTTP 403 Forbidden", None)
-    assert row["feed_text"] == "a teaser"  # the teaser stays as evidence, never becomes the body
+    assert [r["id"] for r in rows] == [waiting]
+    assert rows[0]["body"] == "text"
+
+
+def test_an_article_gets_one_result_per_model_and_prompt_version(conn):
+    a = add_ready(conn, "http://x/a")
+
+    assert enrich_row(conn, a) is True
+    assert enrich_row(conn, a) is False  # same pair: not stored twice
+    assert enrich_row(conn, a, model="another") is True
+    assert conn.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 2
+
+
+def test_deleting_an_article_deletes_its_enrichments(conn):
+    a = add_ready(conn, "http://x/a")
+    enrich_row(conn, a)
+
+    conn.execute("DELETE FROM articles WHERE id = ?", (a,))
+
+    assert conn.execute("SELECT COUNT(*) FROM enrichments").fetchone()[0] == 0

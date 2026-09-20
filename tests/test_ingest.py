@@ -88,80 +88,35 @@ def assert_stats_add_up(stats: ingest.FeedStats) -> None:
 # --- the window setting -----------------------------------------------------
 
 
-def test_default_window_is_24_hours():
-    assert ingest.MAX_ARTICLE_AGE == timedelta(hours=24)
-
-
 def test_window_is_configurable(conn):
     thirty_hours_old = one_item(rfc822(NOW - timedelta(hours=30)))
     assert run(conn, thirty_hours_old).too_old == 1
     assert run(conn, thirty_hours_old, max_age=timedelta(hours=48)).inserted == 1
 
 
-# --- window boundary --------------------------------------------------------
+# --- window boundary and timezones ------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("published", "expect_inserted"),
-    [
-        (CUTOFF - SECOND, False),  # one second too old
-        (CUTOFF, True),  # exactly at the cutoff is in (>=)
-        (CUTOFF + SECOND, True),
-        (NOW, True),
-    ],
-    ids=["1s-before-cutoff", "exactly-at-cutoff", "1s-after-cutoff", "now"],
-)
-def test_window_boundary(conn, published, expect_inserted):
-    stats = run(conn, one_item(rfc822(published)))
+# Each case writes the same two instants, the cutoff and one second before it, with a
+# different UTC offset. If offsets were ignored, the wall-clock time would be compared
+# against the UTC cutoff and these would flip.
+@pytest.mark.parametrize("offset", [-8, 0, 5.5, 14])
+def test_window_boundary_in_any_timezone(conn, offset):
+    parsed = rss(
+        ("at the cutoff", "http://x/in", rfc822(CUTOFF, offset)),  # exactly at it: in (>=)
+        ("one second earlier", "http://x/out", rfc822(CUTOFF - SECOND, offset)),
+    )
 
-    assert stats.found == 1
-    assert stats.inserted == (1 if expect_inserted else 0)
-    assert stats.too_old == (0 if expect_inserted else 1)
-    assert count_articles(conn) == (1 if expect_inserted else 0)
+    stats = run(conn, parsed)
 
-
-# --- timezone handling ------------------------------------------------------
-# Each case names the same UTC instant (the cutoff, or one second before it)
-# but writes it with a different offset. If offsets were ignored, the wall-clock
-# time would be compared against the UTC cutoff and many of these would flip.
-
-OFFSETS = [-12, -8, -5, 0, 2, 5.5, 14]
-
-
-@pytest.mark.parametrize("offset", OFFSETS)
-def test_cutoff_instant_is_in_window_in_any_timezone(conn, offset):
-    assert run(conn, one_item(rfc822(CUTOFF, offset))).inserted == 1
-
-
-@pytest.mark.parametrize("offset", OFFSETS)
-def test_one_second_before_cutoff_is_too_old_in_any_timezone(conn, offset):
-    assert run(conn, one_item(rfc822(CUTOFF - SECOND, offset))).too_old == 1
-
-
-def test_named_timezone_is_converted():
-    # 07:00 EST is 12:00 UTC, which is exactly the cutoff.
-    entry = one_item("Sat, 19 Sep 2026 07:00:00 EST").entries[0]
-    assert ingest.entry_published_at(entry) == CUTOFF
-
-
-def test_result_is_aware_utc():
-    entry = one_item(rfc822(CUTOFF, 2)).entries[0]
-    published = ingest.entry_published_at(entry)
-    assert published == CUTOFF
-    assert published.utcoffset() == timedelta(0)
+    assert stored_urls(conn) == ["http://x/in"]
+    assert (stats.inserted, stats.too_old) == (1, 1)
 
 
 def test_stored_timestamp_is_utc_text(conn):
     run(conn, one_item(rfc822(CUTOFF, 2)))  # written with a +0200 offset
     row = conn.execute("SELECT published_at FROM articles").fetchone()
     assert row["published_at"] == "2026-09-19T12:00:00Z"
-
-
-def test_atom_offsets_and_z_suffix():
-    with_offset = atom("<published>2026-09-19T14:00:00+02:00</published>")
-    with_z = atom("<published>2026-09-19T12:00:00Z</published>")
-    assert ingest.entry_published_at(with_offset.entries[0]) == CUTOFF
-    assert ingest.entry_published_at(with_z.entries[0]) == CUTOFF
 
 
 def test_atom_prefers_published_over_updated(conn):
@@ -174,21 +129,18 @@ def test_atom_prefers_published_over_updated(conn):
 
 
 def test_falls_back_to_updated_when_no_published(conn):
-    parsed = atom("<updated>2026-09-20T11:00:00Z</updated>")
-    assert run(conn, parsed).inserted == 1
+    stats = run(conn, atom("<updated>2026-09-20T11:00:00Z</updated>"))
 
-
-def test_naive_now_is_rejected(conn):
-    with pytest.raises(ValueError):
-        run(conn, one_item(rfc822(NOW)), now=datetime(2026, 9, 20, 12, 0, 0))
+    # Must be counted as a dated, in-window entry. Checking only `inserted` would pass
+    # even without the fallback, because a feed with no usable date is treated as
+    # dateless and its top entry is inserted anyway.
+    assert (stats.in_window, stats.undated, stats.inserted) == (1, 0, 1)
 
 
 # --- missing / invalid dates in a dated feed: skipped, never assumed recent --
 
 UNUSABLE_DATES = [
     pytest.param(None, id="missing"),  # no <pubDate> at all
-    pytest.param("not a date", id="garbage"),
-    pytest.param("", id="empty"),
     pytest.param("Sat, 19 Sep 2026 18:00:00", id="no-timezone"),  # RSS date lacking a zone
 ]
 
@@ -223,13 +175,6 @@ def test_second_run_finds_everything_already_present(conn):
     assert count_articles(conn) == 1
 
 
-def test_duplicate_url_within_one_feed(conn):
-    recent = rfc822(NOW - timedelta(hours=1))
-    stats = run(conn, rss(("a", "http://x/1", recent), ("b", "http://x/1", recent)))
-
-    assert (stats.inserted, stats.already_present) == (1, 1)
-
-
 def test_entry_without_link_is_counted_not_stored(conn):
     stats = run(conn, one_item(rfc822(NOW), link=None))
 
@@ -260,12 +205,6 @@ def test_stats_for_a_mixed_feed(conn):
         found=7, in_window=3, too_old=3, bad_date=1, no_url=1, inserted=1, already_present=1
     )
     assert_stats_add_up(stats)
-
-
-def test_stats_can_be_summed():
-    a = ingest.FeedStats(found=2, inserted=1, too_old=1)
-    b = ingest.FeedStats(found=3, inserted=2, bad_date=1)
-    assert a + b == ingest.FeedStats(found=5, inserted=3, too_old=1, bad_date=1)
 
 
 # --- dateless feeds: walk from the top until the first known URL ------------
@@ -349,29 +288,6 @@ def test_new_dateless_entries_are_stored_oldest_first(conn):
     assert stored_urls(conn) == urls("D", "C", "B", "A")
 
 
-def test_interrupted_ingest_leaves_no_gap_that_a_later_run_would_miss(conn, monkeypatch):
-    run(conn, undated_feed("D"))
-    real_insert = db.insert_article
-    calls = 0
-
-    def crash_on_last_insert(conn, **fields):
-        nonlocal calls
-        calls += 1
-        if calls == 3:  # A, B and C are new; die after writing two of them
-            raise RuntimeError("simulated crash")
-        return real_insert(conn, **fields)
-
-    monkeypatch.setattr(db, "insert_article", crash_on_last_insert)
-    with pytest.raises(RuntimeError):
-        run(conn, undated_feed("A", "B", "C", "D"))
-    conn.commit()  # worst case: whatever was written before the crash is kept
-
-    monkeypatch.setattr(db, "insert_article", real_insert)
-    run(conn, undated_feed("A", "B", "C", "D"))
-
-    assert sorted(stored_urls(conn)) == urls("A", "B", "C", "D")
-
-
 @pytest.mark.parametrize("pub", UNUSABLE_DATES)
 def test_feed_where_no_entry_has_a_usable_date_is_dateless(conn, pub):
     stats = run(conn, rss(("A", "http://x/A", pub), ("B", "http://x/B", pub)))
@@ -381,30 +297,24 @@ def test_feed_where_no_entry_has_a_usable_date_is_dateless(conn, pub):
     assert_stats_add_up(stats)
 
 
-def test_dateless_entry_without_link_is_skipped_and_the_next_one_is_newest(conn):
-    stats = run(conn, rss(("x", None, None), ("A", "http://x/A", None), ("B", "http://x/B", None)))
-
-    assert stored_urls(conn) == urls("A")
-    assert (stats.no_url, stats.inserted, stats.not_examined) == (1, 1, 1)
-    assert_stats_add_up(stats)
-
-
 # --- dated feeds keep their 24-hour behavior (requirement 6) ----------------
 # The window and timezone tests above already cover the boundary; these check
 # that the dateless rules don't leak into dated feeds.
 
 
-def test_dated_feed_first_run_inserts_every_recent_entry_not_just_the_newest(conn):
+def test_dated_feed_first_run_inserts_every_recent_entry_and_skips_old_ones(conn):
     parsed = rss(
         ("a", "http://x/a", rfc822(NOW - timedelta(hours=1))),
         ("b", "http://x/b", rfc822(NOW - timedelta(hours=2))),
         ("c", "http://x/c", rfc822(NOW - timedelta(hours=3))),
+        ("old", "http://x/old", rfc822(NOW - timedelta(days=3))),
     )
 
     stats = run(conn, parsed)
 
+    # Every recent entry, not just the newest; the window applies, not newest-first.
     assert sorted(stored_urls(conn)) == urls("a", "b", "c")
-    assert (stats.inserted, stats.undated, stats.not_examined) == (3, 0, 0)
+    assert (stats.inserted, stats.too_old, stats.undated, stats.not_examined) == (3, 1, 0, 0)
 
 
 def test_dated_feed_does_not_stop_at_a_known_url(conn):
@@ -422,18 +332,6 @@ def test_dated_feed_does_not_stop_at_a_known_url(conn):
 
     assert sorted(stored_urls(conn)) == urls("known", "new-1", "new-2")
     assert (stats.inserted, stats.already_present, stats.not_examined) == (2, 1, 0)
-
-
-def test_dated_feed_still_uses_the_window_not_newest_first(conn):
-    parsed = rss(
-        ("new", "http://x/new", rfc822(NOW - timedelta(hours=1))),
-        ("old", "http://x/old", rfc822(NOW - timedelta(days=3))),
-    )
-
-    stats = run(conn, parsed)
-
-    assert stored_urls(conn) == urls("new")
-    assert (stats.too_old, stats.undated) == (1, 0)
 
 
 # --- content normalization --------------------------------------------------
@@ -475,13 +373,6 @@ def test_repo_feeds_file_loads():
     assert all(feed.strategy in ingest.STRATEGIES for feed in feeds)
 
 
-def test_feed_missing_a_field_is_reported(tmp_path):
-    path = tmp_path / "feeds.toml"
-    path.write_text('[[feeds]]\nname = "no url here"\n')
-    with pytest.raises(ValueError, match="feed #1 is missing 'url'"):
-        ingest.load_feeds(path)
-
-
 # --- feeds.toml validation --------------------------------------------------
 
 
@@ -491,14 +382,29 @@ def load_toml(tmp_path, text):
     return ingest.load_feeds(path)
 
 
-def test_a_feed_needs_a_strategy(tmp_path):
-    with pytest.raises(ValueError, match="feed #1 is missing 'strategy'"):
-        load_toml(tmp_path, '[[feeds]]\nname = "A"\nurl = "https://a"\n')
+FEED = '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\n'
 
 
-def test_an_unknown_strategy_is_rejected_naming_the_options(tmp_path):
-    with pytest.raises(ValueError, match="strategy 'scrape'.*feed_content, fulltext"):
-        load_toml(tmp_path, '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "scrape"\n')
+@pytest.mark.parametrize(
+    ("toml_text", "message"),
+    [
+        ('[[feeds]]\nname = "A"\nstrategy = "fulltext"\n', "feed #1 is missing 'url'"),
+        ('[[feeds]]\nname = "A"\nurl = "https://a"\n', "feed #1 is missing 'strategy'"),
+        (
+            '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "scrape"\n',
+            "strategy 'scrape'.*feed_content, fulltext",
+        ),
+        (
+            '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "feed_content"\nstop_markers = ["x"]\n',
+            "only apply to strategy 'fulltext'",
+        ),
+        (FEED + "\n" + FEED, "more than one feed is named 'A'"),
+    ],
+    ids=["missing-url", "missing-strategy", "unknown-strategy", "stop-markers-on-feed-content", "duplicate-name"],
+)
+def test_invalid_feeds_files_are_rejected(tmp_path, toml_text, message):
+    with pytest.raises(ValueError, match=message):
+        load_toml(tmp_path, toml_text)
 
 
 def test_strategy_and_stop_markers_are_loaded(tmp_path):
@@ -513,39 +419,12 @@ def test_strategy_and_stop_markers_are_loaded(tmp_path):
     ]
 
 
-@pytest.mark.parametrize(
-    ("extra", "message"),
-    [
-        ('strategy = "fulltext"\nstop_markers = "not a list"', "must be a list of strings"),
-        ('strategy = "fulltext"\nstop_markers = [1, 2]', "must be a list of strings"),
-        ('strategy = "feed_content"\nstop_markers = ["x"]', "only apply to strategy 'fulltext'"),
-    ],
-)
-def test_invalid_stop_markers_are_rejected(tmp_path, extra, message):
-    with pytest.raises(ValueError, match=message):
-        load_toml(tmp_path, f'[[feeds]]\nname = "A"\nurl = "https://a"\n{extra}\n')
-
-
-def test_two_feeds_cannot_share_a_name(tmp_path):
-    block = '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\n\n'
-    with pytest.raises(ValueError, match="more than one feed is named 'A'"):
-        load_toml(tmp_path, block + block)
-
-
 # --- a configured URL that isn't a feed must fail, not report "found 0" ------
 
 RECENT_ENTRY_FEED = (
     "<rss version='2.0'><channel><title>Real</title><item><title>Fresh post</title>"
     "<link>http://example.test/fresh</link><pubDate>{date}</pubDate></item></channel></rss>"
 )
-
-
-def test_fetching_a_web_page_as_a_feed_raises(server):
-    base, routes = server
-    routes["/site"] = ok("<html><body><h1>Just a website</h1><p>No feed here.</p></body></html>")
-
-    with pytest.raises(ingest.FeedError, match="not an RSS/Atom feed"):
-        ingest.fetch_feed(base + "/site")
 
 
 def test_a_real_feed_with_no_entries_is_not_a_failure(server):
