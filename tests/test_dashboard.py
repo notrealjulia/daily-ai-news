@@ -347,3 +347,18 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     assert "Spam" not in everything
     assert "Sources monitored: OpenAI · Simon Willison" in everything
     assert "openai.com" not in everything and "fulltext" not in everything  # names only
+
+
+def test_the_deployed_app_takes_its_database_settings_from_streamlit_secrets(tmp_path, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.chdir(tmp_path)  # no ainews.db here, so falling back to the local file shows "no run"
+
+    without = AppTest.from_file(str(APP), default_timeout=30).run()
+    assert "reading the local SQLite file" in without.info[0].value
+
+    deployed = AppTest.from_file(str(APP), default_timeout=30)
+    deployed.secrets["AINEWS_BACKEND"] = "turso"  # the credentials are missing on purpose: nothing to connect to
+    deployed.run()
+    assert "needs TURSO_DATABASE_URL and TURSO_AUTH_TOKEN" in deployed.exception[0].value

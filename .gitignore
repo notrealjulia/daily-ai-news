@@ -16,3 +16,6 @@ dist/
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+
+# Streamlit secrets (the hosted dashboard's Turso settings live here)
+.streamlit/secrets.toml

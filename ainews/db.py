@@ -16,6 +16,7 @@ An article's text lives in two places on purpose:
 
 import os
 import sqlite3
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -132,35 +133,41 @@ class DatabaseConfigError(Exception):
     """The database backend is chosen or configured wrongly (never includes a secret)."""
 
 
-def _use_turso() -> bool:
+def uses_turso(settings: Mapping[str, str] | None = None) -> bool:
     """Whether AINEWS_BACKEND selects the hosted Turso database instead of local SQLite.
 
-    Deliberately explicit, and read from the real environment only (not .env): the local
-    .env may hold the Turso credentials, and that must never quietly point development
-    at the hosted database.
+    Deliberately explicit: it is read from the real environment, or from `settings`
+    (what a hosting platform's secrets provide; only the dashboard passes them), and never
+    from .env. The local .env may hold the Turso credentials, and that must never quietly
+    point development at the hosted database.
     """
-    backend = os.environ.get(BACKEND_VARIABLE, "").strip().lower()
+    backend = str(os.environ.get(BACKEND_VARIABLE) or (settings or {}).get(BACKEND_VARIABLE) or "")
+    backend = backend.strip().lower()
     if backend not in ("", "sqlite", "turso"):
         raise DatabaseConfigError(f"{BACKEND_VARIABLE} must be 'sqlite' or 'turso', not {backend!r}")
     return backend == "turso"
 
 
-def _connect_turso():
+def _connect_turso(settings: Mapping[str, str] | None = None):
     """Open the hosted Turso database over HTTP (a DB-API driver that mirrors sqlite3).
 
-    The credentials come from the environment, or failing that from the .env file, which
-    is read directly rather than loaded into the environment.
+    The credentials come from the environment, or failing that from `settings`, or
+    failing that from the .env file, which is read directly rather than loaded into the
+    environment.
     """
     import turso_serverless  # here, so local SQLite use doesn't load it
 
-    settings = {name: os.environ.get(name) or dotenv_values(ENV_PATH).get(name) for name in TURSO_VARIABLES}
-    missing = [name for name, value in settings.items() if not value]
+    values = {
+        name: os.environ.get(name) or (settings or {}).get(name) or dotenv_values(ENV_PATH).get(name)
+        for name in TURSO_VARIABLES
+    }
+    missing = [name for name, value in values.items() if not value]
     if missing:
         raise DatabaseConfigError(
             f"{BACKEND_VARIABLE}=turso needs {' and '.join(missing)}: set them in the "
             "environment or in the .env file (see .env.example)."
         )
-    url, token = settings.values()
+    url, token = (str(value) for value in values.values())
     conn = turso_serverless.connect(url, auth_token=token)
     conn.row_factory = turso_serverless.Row
     return conn
@@ -173,7 +180,7 @@ def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     the hosted Turso database and `path` is ignored. Either way rows can be read by
     name, and the rest of the application can't tell the difference.
     """
-    if _use_turso():
+    if uses_turso():
         conn = _connect_turso()  # foreign keys are enforced and WAL is used on the server
     else:
         conn = sqlite3.connect(path)
@@ -622,7 +629,9 @@ def insert_digest(
 # --- Read-only access for the dashboard --------------------------------------
 
 
-def connect_readonly(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
+def connect_readonly(
+    path: str | Path = DEFAULT_DB_PATH, settings: Mapping[str, str] | None = None
+) -> sqlite3.Connection:
     """Open an existing database strictly read-only, for the dashboard.
 
     Unlike connect(), this never creates the file, sets pragmas, creates tables or
@@ -634,10 +643,12 @@ def connect_readonly(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
     With AINEWS_BACKEND=turso this is the hosted database, and nothing is created or
     migrated either. There, read-only is enforced by the token, not by this function:
-    give the dashboard a read-only Turso token.
+    give the dashboard a read-only Turso token. `settings` (for example Streamlit's
+    secrets) supplies AINEWS_BACKEND and the Turso credentials where the real
+    environment doesn't; the real environment wins.
     """
-    if _use_turso():
-        return _connect_turso()
+    if uses_turso(settings):
+        return _connect_turso(settings)
     uri = Path(path).resolve().as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row

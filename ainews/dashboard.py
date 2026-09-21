@@ -14,6 +14,7 @@ that is only partly done is never shown.
 import re
 import sqlite3
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
@@ -132,15 +133,19 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     )
 
 
-def open_dashboard(path: str | Path = db.DEFAULT_DB_PATH) -> Dashboard | None:
+def open_dashboard(
+    path: str | Path = db.DEFAULT_DB_PATH, settings: Mapping[str, str] | None = None
+) -> Dashboard | None:
     """Open the database read-only and load the dashboard.
+
+    `settings` (Streamlit's secrets, when deployed) is passed on to db.connect_readonly.
 
     Returns None if there is nothing to show: no database file, a database from before
     clustering existed (no story tables), or no fully processed run. It never writes to,
     creates, or upgrades the database.
     """
     try:
-        conn = db.connect_readonly(path)
+        conn = db.connect_readonly(path, settings)
     except sqlite3.OperationalError:
         return None
     try:
@@ -189,6 +194,11 @@ def _plural(count: int, singular: str, plural: str) -> str:
 
 def expander_label(story_count: int) -> str:
     return f"View {_plural(story_count, 'story', 'stories')}"
+
+
+def database_label(settings: Mapping[str, str] | None = None) -> str:
+    """Which database the page is reading, for the message shown when there is no run."""
+    return "Turso" if db.uses_turso(settings) else "the local SQLite file"
 
 
 def empty_text(window_hours: int) -> str:

@@ -282,3 +282,36 @@ def test_a_database_from_before_digest_headlines_gains_the_column_and_keeps_its_
     assert (row["summary"], row["headline"]) == ("Kept.", None)  # old digests stay, without a headline
     migrated.close()
     db.connect(path).close()  # and migrating again changes nothing (no duplicate column)
+
+
+@pytest.mark.parametrize(
+    ("environment", "settings", "expected"),
+    [
+        ({}, {}, False),  # local SQLite is the default
+        ({}, {"AINEWS_BACKEND": "turso"}, True),  # e.g. Streamlit secrets
+        ({"AINEWS_BACKEND": "turso"}, {}, True),  # the real environment, as in GitHub Actions
+        ({"AINEWS_BACKEND": "sqlite"}, {"AINEWS_BACKEND": "turso"}, False),  # the environment wins
+        ({}, {"TURSO_DATABASE_URL": "u", "TURSO_AUTH_TOKEN": "t"}, False),  # credentials alone never switch
+    ],
+    ids=["default", "settings", "environment", "environment-wins", "credentials-alone"],
+)
+def test_the_backend_can_be_chosen_by_the_environment_or_by_settings(monkeypatch, environment, settings, expected):
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+
+    assert db.uses_turso(settings) is expected
+
+
+def test_the_dashboard_can_take_its_turso_settings_from_secrets(monkeypatch):
+    import turso_serverless
+
+    opened = []
+    monkeypatch.setattr(turso_serverless, "connect", lambda url, auth_token: opened.append((url, auth_token)) or type("C", (), {})())
+    secrets = {"AINEWS_BACKEND": "turso", "TURSO_DATABASE_URL": "libsql://from-secrets", "TURSO_AUTH_TOKEN": "secret-token"}
+
+    db.connect_readonly(settings=secrets)
+
+    assert opened == [("libsql://from-secrets", "secret-token")]  # no local file was involved
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "from-the-environment")
+    db.connect_readonly(settings=secrets)
+    assert opened[-1] == ("libsql://from-secrets", "from-the-environment")  # the real environment wins
