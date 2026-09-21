@@ -1,0 +1,53 @@
+name: Daily AI News
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    - cron: "17 7 * * *"
+      timezone: "Europe/Copenhagen"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daily-ai-news
+  cancel-in-progress: false
+
+jobs:
+  update-news:
+    runs-on: ubuntu-latest
+
+    env:
+      AINEWS_BACKEND: turso
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Ingest articles
+        run: python -m ainews ingest
+
+      - name: Extract article content
+        run: python -m ainews extract
+
+      - name: Enrich articles
+        run: python -m ainews enrich
+
+      - name: Cluster stories
+        run: python -m ainews cluster
+
+      - name: Generate digests
+        run: python -m ainews digest
