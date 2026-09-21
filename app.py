@@ -40,10 +40,12 @@ with page, st.container(gap="xsmall"):
             # height="stretch" makes both cards in a row as tall as the taller one; the
             # stretch space then pushes the expander to the bottom of the card.
             with column.container(border=True, gap="xsmall", height="stretch"):
-                st.subheader(dashboard.category_heading(category, data.total_stories))
+                st.subheader(dashboard.escape_markdown(category.name))
                 if not category.stories:
                     st.caption(dashboard.empty_text(data.window_hours))
                     continue
+                if category.headline:
+                    st.markdown(f"#### {dashboard.escape_markdown(category.headline)}")
                 if category.digest:
                     st.markdown(dashboard.escape_markdown(category.digest))
                 st.space("stretch")

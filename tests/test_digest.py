@@ -17,7 +17,9 @@ class FakeLLM:
     def __init__(self, respond=None, model="digest-model"):
         self.model = model
         self.calls: list[dict] = []
-        self._respond = respond or (lambda category, input_text: {"summary": f"Digest of {category}."})
+        self._respond = respond or (
+            lambda category, input_text: {"headline": f"Headline for {category}", "summary": f"Digest of {category}."}
+        )
 
     def generate(self, *, instructions, input_text, schema_name, schema):
         category = input_text.split("\n", 1)[0].removeprefix("Category: ")
@@ -61,7 +63,8 @@ def make_run(conn, *specs, input_hash="one") -> int:
 
 def digest_rows(conn):
     return [
-        (r["category"], r["story_count"], r["total_story_count"], r["summary"], r["model"], r["prompt_version"])
+        (r["category"], r["story_count"], r["total_story_count"], r["headline"], r["summary"], r["model"],
+         r["prompt_version"])
         for r in conn.execute("SELECT * FROM digests ORDER BY id")
     ]
 
@@ -86,8 +89,9 @@ def test_one_digest_per_category_from_stories_with_the_activity_context(conn):
 
     assert [c["category"] for c in fake.calls] == ["Research", "Industry News"]  # none for empty ones
     assert digest_rows(conn) == [
-        ("Research", 2, 3, "Digest of Research.", "digest-model", digest.DIGEST_PROMPT_VERSION),
-        ("Industry News", 1, 3, "Digest of Industry News.", "digest-model", digest.DIGEST_PROMPT_VERSION),
+        ("Research", 2, 3, "Headline for Research", "Digest of Research.", "digest-model", digest.DIGEST_PROMPT_VERSION),
+        ("Industry News", 1, 3, "Headline for Industry News", "Digest of Industry News.", "digest-model",
+         digest.DIGEST_PROMPT_VERSION),
     ]
     assert set(summary.no_stories) == {"Product Release", "Business", "Regulation & Policy", "Other"}
     text = fake.calls[0]["input_text"]
@@ -145,7 +149,8 @@ def test_digests_are_not_repeated_but_a_new_prompt_or_run_gets_its_own(conn, cha
     [
         pytest.param(llm.LLMError("RateLimitError (HTTP 429): slow down"), id="llm-error"),
         pytest.param(KeyError("boom"), id="unexpected-exception"),
-        pytest.param({"summary": ""}, id="invalid-answer"),
+        pytest.param({"headline": "", "summary": "Fine."}, id="invalid-headline"),
+        pytest.param({"headline": "Fine", "summary": ""}, id="invalid-summary"),
     ],
 )
 def test_one_failing_category_does_not_block_the_others_and_is_retried(conn, failure):
@@ -153,7 +158,7 @@ def test_one_failing_category_does_not_block_the_others_and_is_retried(conn, fai
 
     def respond(category, input_text):
         if category != "Research":
-            return {"summary": "Fine."}
+            return {"headline": "Fine headline", "summary": "Fine."}
         if isinstance(failure, Exception):
             raise failure
         return failure
@@ -168,6 +173,35 @@ def test_one_failing_category_does_not_block_the_others_and_is_retried(conn, fai
 
     assert [c["category"] for c in retry.calls] == ["Research"]  # only the one that failed
     assert sorted(row[0] for row in digest_rows(conn)) == ["Industry News", "Research"]
+
+
+# --- the structured answer ---------------------------------------------------
+
+
+def test_the_schema_asks_for_exactly_what_the_parser_accepts():
+    keys = set(digest.SCHEMA["properties"])
+
+    assert keys == set(digest.SCHEMA["required"]) == {"headline", "summary"}
+    assert digest.parse_digest({key: f"A {key}." for key in keys}) == ("A headline.", "A summary.")
+
+
+@pytest.mark.parametrize(
+    ("answer", "message"),
+    [
+        ({"summary": "S."}, "expected exactly headline and summary"),
+        ({"headline": "H", "summary": "S.", "extra": "x"}, "expected exactly headline and summary"),
+        ({"headline": "  ", "summary": "S."}, "the headline is empty"),
+        ({"headline": 7, "summary": "S."}, "the headline is empty"),
+        ({"headline": "Two\nlines", "summary": "S."}, "not a single line"),
+        ({"headline": "word " * 40, "summary": "S."}, "the headline is .* chars"),
+        ({"headline": "H", "summary": ""}, "the summary is empty"),
+    ],
+    ids=["no-headline", "extra-key", "blank-headline", "non-string-headline", "multi-line-headline",
+         "runaway-headline", "empty-summary"],
+)
+def test_an_invalid_headline_or_summary_is_rejected_not_repaired(answer, message):
+    with pytest.raises(digest.enrich.InvalidOutput, match=message):
+        digest.parse_digest(answer)
 
 
 # --- the command -------------------------------------------------------------

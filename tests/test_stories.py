@@ -60,7 +60,8 @@ def add(
     if enriched:
         db.insert_enrichment(
             conn, article_id=article_id, category=category,
-            summary=summary or f"Summary of {title}.", model=model, prompt_version=prompt, created_at=NOW,
+            summary=summary or f"Summary of {title}.", english_title=None,
+            model=model, prompt_version=prompt, created_at=NOW,
         )  # fmt: skip
     conn.commit()
     return article_id

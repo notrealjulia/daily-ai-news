@@ -11,4 +11,4 @@ digest.DIGEST_PROMPT_VERSION).
 DEFAULT_MODEL = "gpt-5.6-luna"
 
 # Bump when the digest prompt, its schema or its input format change.
-DIGEST_PROMPT_VERSION = "v2"  # v2: synthesis only; counts are context, not text to repeat
+DIGEST_PROMPT_VERSION = "v3"  # v3: also a headline; v2: synthesis only, counts are context

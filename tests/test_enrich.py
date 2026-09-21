@@ -13,7 +13,7 @@ from ainews import db, enrich, llm
 from ainews.__main__ import main
 
 NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
-GOOD = {"category": "Product Release", "summary": "A company released a product."}
+GOOD = {"category": "Product Release", "summary": "A company released a product.", "english_title": None}
 
 
 class FakeLLM:
@@ -105,8 +105,8 @@ def test_categories_prompt_and_schema_agree():
 
     schema = enrich.SCHEMA
     assert schema["properties"]["category"]["enum"] == list(enrich.CATEGORIES)
-    assert set(schema["properties"]) == {"category", "summary"}  # exactly these two
-    assert schema["required"] == ["category", "summary"]
+    assert set(schema["properties"]) == {"category", "summary", "english_title"}  # exactly these
+    assert schema["required"] == ["category", "summary", "english_title"]
     assert schema["additionalProperties"] is False
 
 
@@ -151,13 +151,33 @@ def test_a_successful_enrichment_is_stored_separately_from_the_article(conn):
     assert created == "2026-09-20T12:00:00Z"
 
 
+# --- English titles ----------------------------------------------------------
+
+
+def test_a_translated_title_is_stored_beside_the_article_and_an_english_one_is_left_alone(conn):
+    danish, english = add_ready(conn, "Danske startups rejser rekordstor kapital"), add_ready(conn, "OpenAI ships a model")
+    fake = FakeLLM(by_title(**{
+        "Danske startups rejser rekordstor kapital": {**GOOD, "english_title": "Danish startups raise record capital"},
+        "OpenAI ships a model": {**GOOD, "english_title": None},  # already English: the model says so
+    }))
+
+    run(conn, fake)
+
+    titles = {r["article_id"]: r["english_title"] for r in conn.execute("SELECT article_id, english_title FROM enrichments")}
+    assert titles == {danish: "Danish startups raise record capital", english: None}
+    # The source data is untouched, and the model was shown the original title to judge.
+    originals = {r["id"]: r["title"] for r in conn.execute("SELECT id, title FROM articles")}
+    assert originals == {danish: "Danske startups rejser rekordstor kapital", english: "OpenAI ships a model"}
+    assert "Title: Danske startups rejser rekordstor kapital\n" in fake.calls[0]["input_text"]
+
+
 # --- invalid output ----------------------------------------------------------
 
 
 def test_an_invalid_category_is_a_failure_and_nothing_is_stored(conn):
     add_ready(conn, "Anything")
 
-    summary = run(conn, FakeLLM(lambda _: {"category": "Models", "summary": "Fine."}))
+    summary = run(conn, FakeLLM(lambda _: {"category": "Models", "summary": "Fine.", "english_title": None}))
 
     assert stored(conn) == []
     (outcome,) = summary.failed
@@ -167,13 +187,18 @@ def test_an_invalid_category_is_a_failure_and_nothing_is_stored(conn):
 @pytest.mark.parametrize(
     ("answer", "message"),
     [
-        ({"category": "product release", "summary": "Fine."}, "invalid category"),  # no fuzzy matching
-        ({"category": "Other", "summary": ""}, "summary is empty"),
-        ({"category": "Other", "summary": "x" * (enrich.MAX_SUMMARY_CHARS + 1)}, "limit"),
-        ({"category": "Other"}, "expected exactly category and summary"),
-        ({"category": "Other", "summary": "Fine.", "relevance": 9}, "expected exactly"),
+        ({"category": "product release", "summary": "Fine.", "english_title": None}, "invalid category"),  # no fuzzy matching
+        ({"category": "Other", "summary": "", "english_title": None}, "summary is empty"),
+        ({"category": "Other", "summary": "x" * (enrich.MAX_SUMMARY_CHARS + 1), "english_title": None}, "limit"),
+        ({"category": "Other", "summary": "Fine."}, "expected exactly category, summary and english_title"),
+        ({"category": "Other", "summary": "Fine.", "english_title": None, "relevance": 9}, "expected exactly"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "  "}, "english_title is empty"),
+        ({"category": "Other", "summary": "Fine.", "english_title": 7}, "english_title is empty"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "Two\nlines"}, "not a single line"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "x" * (enrich.MAX_TITLE_CHARS + 1)}, "chars (limit"),
     ],
-    ids=["category-not-matched-fuzzily", "empty-summary", "summary-too-long", "missing-summary", "extra-key"],
+    ids=["category-not-matched-fuzzily", "empty-summary", "summary-too-long", "missing-english-title", "extra-key",
+         "blank-english-title", "non-string-english-title", "multi-line-english-title", "runaway-english-title"],
 )
 def test_unacceptable_answers_are_rejected(conn, answer, message):
     add_ready(conn, "Anything")
@@ -204,7 +229,7 @@ def test_an_article_is_not_enriched_again_for_the_same_model_and_prompt(conn):
 def test_spam_is_accepted_and_stored(conn):
     add_ready(conn, "Prices go up in 7 days. Get your Disrupt ticket now")
 
-    run(conn, FakeLLM(lambda _: {"category": "Spam", "summary": "A promotion for conference tickets."}))
+    run(conn, FakeLLM(lambda _: {"category": "Spam", "summary": "A promotion for conference tickets.", "english_title": None}))
 
     assert stored(conn)[0][1] == "Spam"
 
@@ -219,7 +244,7 @@ def test_a_different_model_or_prompt_version_is_enriched_again_alongside_the_fir
 ):
     a = add_ready(conn, "One")
     run(conn, FakeLLM(model="model-a"))  # the first result, under the current prompt
-    second = FakeLLM(lambda _: {"category": "Research", "summary": "Other view."}, model=second_model)
+    second = FakeLLM(lambda _: {"category": "Research", "summary": "Other view.", "english_title": None}, model=second_model)
 
     run(conn, second, prompt_version=second_prompt)
 
@@ -238,7 +263,7 @@ def test_a_different_model_or_prompt_version_is_enriched_again_alongside_the_fir
     [
         (llm.LLMError("RateLimitError (HTTP 429): slow down"), "RateLimitError (HTTP 429): slow down"),
         (KeyError("boom"), "unexpected KeyError"),
-        ({"category": "Bogus", "summary": "x"}, "invalid output"),
+        ({"category": "Bogus", "summary": "x", "english_title": None}, "invalid output"),
     ],
     ids=["llm-error", "unexpected-exception", "invalid-answer"],
 )
@@ -327,7 +352,7 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(c
     fake = FakeLLM(
         by_title(
             **{
-                "Good one": {"category": "Research", "summary": "Fine."},
+                "Good one": {"category": "Research", "summary": "Fine.", "english_title": None},
                 "Bad one": llm.LLMError("RateLimitError (HTTP 429): slow down"),
             }
         )

@@ -163,11 +163,13 @@ def parse_groups(raw: dict, valid_ids: set[int]) -> list[Group]:
 
 
 def parse_story_summary(raw: dict) -> enrich.Enrichment:
-    """A combined summary is validated like an enrichment, and can't be Spam."""
-    result = enrich.parse_enrichment(raw)
-    if result.category == SPAM:
+    """A combined summary has exactly a category and a summary, validated like an enrichment's, and can't be Spam."""
+    if set(raw) != {"category", "summary"}:
+        raise enrich.InvalidOutput(f"expected exactly category and summary, got {sorted(raw)}")
+    category, summary = enrich.parse_category_and_summary(raw)
+    if category == SPAM:
         raise enrich.InvalidOutput("a story cannot be Spam")
-    return result
+    return enrich.Enrichment(category, summary, english_title=None)  # stories have no title of their own
 
 
 def generate_validated(llm: StructuredLLM, *, instructions, input_text, schema_name, schema, parse):

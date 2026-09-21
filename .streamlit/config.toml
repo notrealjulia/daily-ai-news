@@ -12,5 +12,6 @@ showEmailPrompt = false    # don't ask for an email on the first run
 # Compact, dashboard-like typography, set here rather than with CSS.
 [theme]
 baseFontSize = 9           # root font size in px (default 16); rem-based spacing scales with it
-# Page title (h1), h2 (unused) and category headings (h3). Defaults are 2.75 / 2.25 / 1.75rem.
-headingFontSizes = ["1.6rem", "1.25rem", "1.1rem"]
+# Page title (h1), h2 (unused), category names (h3) and category headlines (h4).
+# Defaults are 2.75 / 2.25 / 1.75 / 1.5rem.
+headingFontSizes = ["1.6rem", "1.25rem", "1.1rem", "1.35rem"]

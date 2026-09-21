@@ -160,7 +160,7 @@ def add_ready(conn, url) -> int:
 
 def enrich_row(conn, article_id, *, model="m", prompt_version="v1", category="Other"):
     return db.insert_enrichment(
-        conn, article_id=article_id, category=category, summary="s",
+        conn, article_id=article_id, category=category, summary="s", english_title=None,
         model=model, prompt_version=prompt_version, created_at=NOW,
     )  # fmt: skip
 
@@ -209,7 +209,7 @@ def test_a_story_run_holds_each_article_once_and_deleting_it_removes_its_stories
     db.create_story(conn, run, article_ids=[a], category="Research", summary="s", grouping_reason=None)
     db.insert_digest(
         conn, run_id=run, category="Research", story_count=1, total_story_count=1,
-        summary="d", model="m", prompt_version="v", created_at=NOW,
+        headline="h", summary="d", model="m", prompt_version="v", created_at=NOW,
     )  # fmt: skip
 
     with pytest.raises(sqlite3.IntegrityError):  # article `a` is already in a story of this run
@@ -257,3 +257,28 @@ def test_the_turso_backend_fails_clearly_when_misconfigured(monkeypatch, opener,
 
     with pytest.raises(db.DatabaseConfigError, match=message):
         opener()  # fails before any network access
+
+
+def test_a_database_from_before_digest_headlines_gains_the_column_and_keeps_its_digests(tmp_path):
+    path = tmp_path / "old.db"
+    conn = db.connect(path)
+    run = db.create_story_run(
+        conn, model="m", prompt_version="v", enrichment_model="e", enrichment_prompt_version="v",
+        window_start=NOW, window_end=NOW, input_hash="h", created_at=NOW,
+    )  # fmt: skip
+    db.insert_digest(
+        conn, run_id=run, category="Research", story_count=1, total_story_count=1,
+        headline="Not stored in the old format", summary="Kept.", model="m", prompt_version="v", created_at=NOW,
+    )  # fmt: skip
+    conn.commit()
+    conn.execute("ALTER TABLE digests DROP COLUMN headline")  # what a database from before had
+    conn.commit()
+    conn.close()
+
+    migrated = db.connect(path)
+
+    assert "headline" in {c[0] for c in columns(migrated, "digests")}
+    row = migrated.execute("SELECT summary, headline FROM digests").fetchone()
+    assert (row["summary"], row["headline"]) == ("Kept.", None)  # old digests stay, without a headline
+    migrated.close()
+    db.connect(path).close()  # and migrating again changes nothing (no duplicate column)

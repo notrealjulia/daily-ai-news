@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS enrichments (
     model          TEXT NOT NULL,
     prompt_version TEXT NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    -- An English translation of the article's title. NULL when the title is already
+    -- English (or was enriched before this existed); `articles.title` is never changed.
+    english_title  TEXT,
     -- One result per article per (model, prompt) pair; re-running with a new
     -- prompt_version adds a row instead of overwriting the old one.
     UNIQUE (article_id, model, prompt_version)
@@ -116,6 +119,7 @@ CREATE TABLE IF NOT EXISTS digests (
     model             TEXT NOT NULL,
     prompt_version    TEXT NOT NULL,
     created_at        TEXT NOT NULL,
+    headline          TEXT,                    -- NULL for digests written before headlines existed
     UNIQUE (run_id, category, model, prompt_version)
 );
 """
@@ -194,6 +198,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     articles:    `content` becomes `feed_text`, and every existing row starts with
                  body_status 'pending', so the next `extract` run picks it up.
     enrichments: the retired relevance and why_it_matters columns are dropped.
+    enrichments: also gain an `english_title` column; rows already stored keep it NULL.
+    digests:     gain a `headline` column; digests already stored keep it NULL.
     """
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
     if "content" in columns:
@@ -208,6 +214,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for name in RETIRED_ENRICHMENT_COLUMNS:
         if name in enrichment_columns:
             conn.execute(f"ALTER TABLE enrichments DROP COLUMN {name}")
+    if "english_title" not in enrichment_columns:
+        conn.execute("ALTER TABLE enrichments ADD COLUMN english_title TEXT")
+
+    digest_columns = {row["name"] for row in conn.execute("PRAGMA table_info(digests)")}
+    if "headline" not in digest_columns:
+        conn.execute("ALTER TABLE digests ADD COLUMN headline TEXT")
 
 
 def _format_timestamp(moment: datetime) -> str:
@@ -359,19 +371,25 @@ def insert_enrichment(
     article_id: int,
     category: str,
     summary: str,
+    english_title: str | None,
     model: str,
     prompt_version: str,
     created_at: datetime,
 ) -> bool:
-    """Store an enrichment. Returns False if this article already has one for the pair."""
+    """Store an enrichment. Returns False if this article already has one for the pair.
+
+    `english_title` is the title translated into English, or None if it already was English.
+    """
     cursor = conn.execute(
         """
-        INSERT INTO enrichments (article_id, category, summary, model, prompt_version, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO enrichments (article_id, category, summary, english_title, model,
+                                 prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (article_id, model, prompt_version) DO NOTHING
         """,
-        (article_id, category, summary, model, prompt_version, _format_timestamp(created_at)),
-    )
+        (article_id, category, summary, english_title, model, prompt_version,
+         _format_timestamp(created_at)),
+    )  # fmt: skip
     return cursor.rowcount == 1
 
 
@@ -581,6 +599,7 @@ def insert_digest(
     category: str,
     story_count: int,
     total_story_count: int,
+    headline: str,
     summary: str,
     model: str,
     prompt_version: str,
@@ -589,13 +608,13 @@ def insert_digest(
     """Store a digest. Returns False if one already exists for this run, category, model and prompt."""
     cursor = conn.execute(
         """
-        INSERT INTO digests (run_id, category, story_count, total_story_count, summary,
+        INSERT INTO digests (run_id, category, story_count, total_story_count, headline, summary,
                              model, prompt_version, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (run_id, category, model, prompt_version) DO NOTHING
         """,
-        (run_id, category, story_count, total_story_count, summary, model, prompt_version,
-         _format_timestamp(created_at)),
+        (run_id, category, story_count, total_story_count, headline, summary, model,
+         prompt_version, _format_timestamp(created_at)),
     )  # fmt: skip
     return cursor.rowcount == 1
 
@@ -660,13 +679,21 @@ def latest_dashboard_run(
 
 def story_article_links(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
     """Every article of every story in a run, with its URL and time (published_at, or
-    fetched_at for dateless articles), earliest first within each story."""
+    fetched_at for dateless articles), earliest first within each story.
+
+    `title` is the English title from the run's own enrichments when the article's title
+    was not English, and the article's title itself otherwise (which is never modified).
+    """
     return conn.execute(
         """
-        SELECT sa.story_id, a.id AS article_id, a.source, a.title, a.url,
+        SELECT sa.story_id, a.id AS article_id, a.source,
+               COALESCE(e.english_title, a.title) AS title, a.url,
                COALESCE(a.published_at, a.fetched_at) AS happened_at
         FROM story_articles sa
         JOIN articles a ON a.id = sa.article_id
+        JOIN story_runs r ON r.id = sa.run_id
+        LEFT JOIN enrichments e ON e.article_id = a.id AND e.model = r.enrichment_model
+                               AND e.prompt_version = r.enrichment_prompt_version
         WHERE sa.run_id = ?
         ORDER BY sa.story_id, happened_at, a.id
         """,
@@ -680,7 +707,7 @@ def digests_for_run(
     """A run's digests for exactly this model and prompt version (at most one per category)."""
     return conn.execute(
         """
-        SELECT category, summary, created_at FROM digests
+        SELECT category, headline, summary, created_at FROM digests
         WHERE run_id = ? AND model = ? AND prompt_version = ?
         ORDER BY id
         """,

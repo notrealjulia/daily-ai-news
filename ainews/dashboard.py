@@ -40,7 +40,7 @@ class Source:
 
 @dataclass(frozen=True)
 class StoryView:
-    title: str  # the earliest article's title (stories have no title of their own yet)
+    title: str  # the earliest article's title, in English (stories have no title of their own yet)
     summary: str
     sources: tuple[Source, ...]  # one per article, earliest first
 
@@ -48,6 +48,7 @@ class StoryView:
 @dataclass(frozen=True)
 class CategoryView:
     name: str
+    headline: str | None  # None for a digest written before headlines existed
     digest: str | None
     stories: tuple[StoryView, ...]  # newest first; not ranked
 
@@ -90,7 +91,7 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     digest_rows = db.digests_for_run(
         conn, run["id"], model=DEFAULT_MODEL, prompt_version=DIGEST_PROMPT_VERSION
     )
-    digests = {row["category"]: row["summary"] for row in digest_rows}
+    digests = {row["category"]: row for row in digest_rows}
 
     grouped: dict[str, list[tuple[str, int, StoryView]]] = {name: [] for name in CATEGORY_ORDER}
     for story in db.stories_in_run(conn, run["id"]):
@@ -108,8 +109,12 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     categories = {}
     for name in CATEGORY_ORDER:
         newest_first = sorted(grouped[name], key=lambda item: (item[0], item[1]), reverse=True)
+        digest = digests.get(name)
         categories[name] = CategoryView(
-            name=name, digest=digests.get(name), stories=tuple(item[2] for item in newest_first)
+            name=name,
+            headline=digest["headline"] if digest else None,
+            digest=digest["summary"] if digest else None,
+            stories=tuple(item[2] for item in newest_first),
         )
 
     shown = [story for category in categories.values() for story in category.stories]
@@ -180,12 +185,6 @@ def story_markdown(story: StoryView) -> str:
 
 def _plural(count: int, singular: str, plural: str) -> str:
     return f"{count} {singular if count == 1 else plural}"
-
-
-def category_heading(category: CategoryView, total_stories: int) -> str:
-    """e.g. "Research · 4 of 8 stories". It is the text of a native heading (st.subheader)."""
-    noun = "story" if total_stories == 1 else "stories"
-    return f"{escape_markdown(category.name)} · {category.story_count} of {total_stories} {noun}"
 
 
 def expander_label(story_count: int) -> str:

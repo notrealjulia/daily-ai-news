@@ -26,13 +26,23 @@ def conn():
     connection.close()
 
 
-def add_article(conn, title, *, source="The Decoder", url=None, published=NOW - timedelta(hours=2)) -> int:
+def add_article(conn, title, *, source="The Decoder", url=None, published=NOW - timedelta(hours=2),
+                english_title=None, enriched_with=("e", "p")) -> int:
+    """`enriched_with` is (model, prompt version) of an enrichment holding `english_title`
+    (None for an English title); the runs made by add_run were built from ("e", "p"). Pass
+    enriched_with=None for an article that was never enriched."""
     url = url or f"https://example.test/{title.replace(' ', '-')}"
     db.insert_article(
         conn, source=source, url=url, title=title,
         published_at=published, fetched_at=published, feed_text=None,
     )  # fmt: skip
-    return conn.execute("SELECT id FROM articles WHERE url = ?", (url,)).fetchone()["id"]
+    article_id = conn.execute("SELECT id FROM articles WHERE url = ?", (url,)).fetchone()["id"]
+    if enriched_with is not None:
+        db.insert_enrichment(
+            conn, article_id=article_id, category="Other", summary="s", english_title=english_title,
+            model=enriched_with[0], prompt_version=enriched_with[1], created_at=NOW,
+        )  # fmt: skip
+    return article_id
 
 
 def add_run(conn, stories, *, created=NOW, digest_prompt=PROMPT, extra_digests=(), key="h") -> int:
@@ -63,13 +73,15 @@ def add_run(conn, stories, *, created=NOW, digest_prompt=PROMPT, extra_digests=(
             digested.add(category)
             db.insert_digest(
                 conn, run_id=run, category=category, story_count=1, total_story_count=1,
-                summary=f"Digest of {category}.", model=MODEL, prompt_version=digest_prompt,
+                headline=f"Headline for {category}", summary=f"Digest of {category}.",
+                model=MODEL, prompt_version=digest_prompt,
                 created_at=created + timedelta(minutes=5),
             )  # fmt: skip
     for category, summary, prompt_version, when in extra_digests:
         db.insert_digest(
             conn, run_id=run, category=category, story_count=1, total_story_count=1,
-            summary=summary, model=MODEL, prompt_version=prompt_version, created_at=when,
+            headline="Old headline", summary=summary, model=MODEL, prompt_version=prompt_version,
+            created_at=when,
         )  # fmt: skip
     conn.commit()
     return run
@@ -144,6 +156,7 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
     research = data.categories["Research"]
     assert [s.summary for s in research.stories] == ["Newer research story.", "Older research story."]
     assert research.digest == "Digest of Research."  # the current prompt's, not the later old one
+    assert research.headline == "Headline for Research"  # stored with that digest, so from the same prompt
     for empty in ("Product Release", "Business", "Regulation & Policy", "Other"):
         assert data.categories[empty].story_count == 0 and data.categories[empty].digest is None
     assert (data.total_stories, data.total_articles, data.window_hours) == (3, 3, 24)
@@ -152,9 +165,33 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
     assert dashboard.format_header(data, tz=UTC) == (
         "Last updated: Sep 20, 15:05 · Last 24 hours · 3 stories from 3 articles"
     )
-    assert dashboard.category_heading(research, data.total_stories) == "Research · 2 of 3 stories"
     assert dashboard.expander_label(2) == "View 2 stories" and dashboard.expander_label(1) == "View 1 story"
     assert dashboard.empty_text(24) == "No stories in the last 24 hours."
+
+
+def test_story_titles_are_english_and_the_source_titles_are_kept(conn):
+    danish = add_article(conn, "Danske startups rejser kapital", english_title="Danish startups raise capital")
+    english = add_article(conn, "OpenAI ships a model")  # already English: nothing to translate
+    later = add_article(conn, "Anden dansk overskrift", english_title="Another Danish headline",
+                        published=NOW - timedelta(hours=1))
+    never_enriched = add_article(conn, "Uden berigelse", enriched_with=None)
+    other_version = add_article(conn, "Kun en anden version", english_title="Translation from another prompt",
+                                enriched_with=("e", "another-prompt"))
+    add_run(conn, [
+        ("Research", "Story one.", [danish]),
+        ("Research", "Story two.", [english]),
+        ("Research", "Story three, two articles.", [later, never_enriched]),  # earliest article is `never_enriched`
+        ("Research", "Story four.", [other_version]),
+    ])
+
+    titles = {s.summary: s.title for s in dashboard.load_dashboard(conn).categories["Research"].stories}
+
+    assert titles["Story one."] == "Danish startups raise capital"  # translated
+    assert titles["Story two."] == "OpenAI ships a model"  # English titles are unchanged
+    assert titles["Story three, two articles."] == "Uden berigelse"  # earliest article; no translation exists
+    assert titles["Story four."] == "Kun en anden version"  # only the run's own enrichment counts
+    stored = {r["title"] for r in conn.execute("SELECT title FROM articles")}
+    assert "Danske startups rejser kapital" in stored and "Danish startups raise capital" not in stored
 
 
 def test_a_multi_source_story_appears_once_with_all_its_sources_linked(conn):
@@ -303,6 +340,8 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     )
     for name in ("Product Release", "Industry News", "Research", "Business", "Regulation", "Other"):
         assert name in everything
+    assert "#### Headline for Research" in everything  # the headline is a heading above the digest
+    assert everything.index("Headline for Research") < everything.index("Digest of Research.")
     assert "Last 24 hours · 1 story from 1 article" in everything
     assert "View 1 story" in everything and "No stories in the last 24 hours." in everything
     assert "Spam" not in everything
