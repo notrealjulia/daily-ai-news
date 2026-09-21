@@ -8,17 +8,23 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def no_real_openai_key(monkeypatch, tmp_path_factory):
-    """No test may ever see the real API key, whatever is in .env or the environment.
+def no_real_credentials(monkeypatch, tmp_path_factory):
+    """No test may ever see the real API key or the real database, whatever is in .env or the environment.
 
-    A dummy key is set, and the .env location is pointed at a file that doesn't exist.
-    Even a test that accidentally reached the network would fail authentication rather
-    than spend money.
+    A dummy OpenAI key is set, and the .env location is pointed at a file that doesn't
+    exist. Even a test that accidentally reached the network would fail authentication
+    rather than spend money. AINEWS_BACKEND is removed, so a shell that has it set to
+    "turso" can't send any test to the hosted database.
     """
-    from ainews import llm
+    from ainews import db, llm
 
+    no_env_file = tmp_path_factory.getbasetemp() / "no-such-dir" / ".env"
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
-    monkeypatch.setattr(llm, "ENV_PATH", tmp_path_factory.getbasetemp() / "no-such-dir" / ".env")
+    monkeypatch.setattr(llm, "ENV_PATH", no_env_file)
+    monkeypatch.setattr(db, "ENV_PATH", no_env_file)
+    monkeypatch.delenv(db.BACKEND_VARIABLE, raising=False)
+    for name in db.TURSO_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
 
 
 class Routes(dict):

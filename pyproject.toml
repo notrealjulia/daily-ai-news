@@ -9,6 +9,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "streamlit>=1.40",
     "trafilatura>=2.0",
+    "turso_serverless>=0.1",  # hosted database, only used when AINEWS_BACKEND=turso
     "lxml_html_clean>=0.4",  # Trafilatura's justext needs it now that lxml split it out
 ]
 

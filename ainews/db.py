@@ -1,6 +1,9 @@
 """SQLite persistence: connection setup, schema, and every query.
 
-This is the only module that should contain SQL. Timestamps are stored as
+This is the only module that should contain SQL, and the only one that knows which
+database is behind the connection: a local SQLite file by default, or the hosted Turso
+database when the environment variable AINEWS_BACKEND=turso is set (see connect()).
+Timestamps are stored as
 ISO 8601 UTC text (e.g. "2026-09-20T10:29:00Z"), which sorts correctly as a
 plain string.
 
@@ -11,11 +14,17 @@ An article's text lives in two places on purpose:
 'failed' (the last attempt failed; it stays eligible for another try).
 """
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 DEFAULT_DB_PATH = Path("ainews.db")
+ENV_PATH = Path(".env")
+BACKEND_VARIABLE = "AINEWS_BACKEND"  # "turso" selects the hosted database; unset means local SQLite
+TURSO_VARIABLES = ("TURSO_DATABASE_URL", "TURSO_AUTH_TOKEN")
 TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 # Added to `articles` after the first release. Defined once and used both by the
@@ -115,17 +124,60 @@ CREATE TABLE IF NOT EXISTS digests (
 RETIRED_ENRICHMENT_COLUMNS = ("relevance", "why_it_matters")
 
 
+class DatabaseConfigError(Exception):
+    """The database backend is chosen or configured wrongly (never includes a secret)."""
+
+
+def _use_turso() -> bool:
+    """Whether AINEWS_BACKEND selects the hosted Turso database instead of local SQLite.
+
+    Deliberately explicit, and read from the real environment only (not .env): the local
+    .env may hold the Turso credentials, and that must never quietly point development
+    at the hosted database.
+    """
+    backend = os.environ.get(BACKEND_VARIABLE, "").strip().lower()
+    if backend not in ("", "sqlite", "turso"):
+        raise DatabaseConfigError(f"{BACKEND_VARIABLE} must be 'sqlite' or 'turso', not {backend!r}")
+    return backend == "turso"
+
+
+def _connect_turso():
+    """Open the hosted Turso database over HTTP (a DB-API driver that mirrors sqlite3).
+
+    The credentials come from the environment, or failing that from the .env file, which
+    is read directly rather than loaded into the environment.
+    """
+    import turso_serverless  # here, so local SQLite use doesn't load it
+
+    settings = {name: os.environ.get(name) or dotenv_values(ENV_PATH).get(name) for name in TURSO_VARIABLES}
+    missing = [name for name, value in settings.items() if not value]
+    if missing:
+        raise DatabaseConfigError(
+            f"{BACKEND_VARIABLE}=turso needs {' and '.join(missing)}: set them in the "
+            "environment or in the .env file (see .env.example)."
+        )
+    url, token = settings.values()
+    conn = turso_serverless.connect(url, auth_token=token)
+    conn.row_factory = turso_serverless.Row
+    return conn
+
+
 def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """Open the database, ensuring the schema exists and is up to date.
 
-    Rows come back as sqlite3.Row, so columns can be read by name.
+    This is a local SQLite file at `path`, unless AINEWS_BACKEND=turso is set; then it is
+    the hosted Turso database and `path` is ignored. Either way rows can be read by
+    name, and the rest of the application can't tell the difference.
     """
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    # SQLite ignores foreign keys unless enabled on every connection.
-    conn.execute("PRAGMA foreign_keys = ON")
-    # WAL lets Streamlit read while the enrich step is writing.
-    conn.execute("PRAGMA journal_mode = WAL")
+    if _use_turso():
+        conn = _connect_turso()  # foreign keys are enforced and WAL is used on the server
+    else:
+        conn = sqlite3.connect(path)
+        conn.row_factory = sqlite3.Row
+        # SQLite ignores foreign keys unless enabled on every connection.
+        conn.execute("PRAGMA foreign_keys = ON")
+        # WAL lets Streamlit read while the enrich step is writing.
+        conn.execute("PRAGMA journal_mode = WAL")
     init_schema(conn)
     return conn
 
@@ -560,7 +612,13 @@ def connect_readonly(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
     (Opening a WAL-mode database this way may leave empty -wal/-shm sidecar files
     next to it. They hold no data, and the database file itself is not touched.)
+
+    With AINEWS_BACKEND=turso this is the hosted database, and nothing is created or
+    migrated either. There, read-only is enforced by the token, not by this function:
+    give the dashboard a read-only Turso token.
     """
+    if _use_turso():
+        return _connect_turso()
     uri = Path(path).resolve().as_uri() + "?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row

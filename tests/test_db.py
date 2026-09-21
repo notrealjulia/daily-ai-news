@@ -220,3 +220,40 @@ def test_a_story_run_holds_each_article_once_and_deleting_it_removes_its_stories
     assert conn.execute("SELECT COUNT(*) FROM stories").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM story_articles").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM digests").fetchone()[0] == 0
+
+
+# --- choosing the backend ----------------------------------------------------
+
+
+def test_local_sqlite_is_used_unless_turso_is_explicitly_selected(monkeypatch, tmp_path):
+    # Having the Turso credentials around (as the developer's .env does) must not switch backends.
+    monkeypatch.setenv("TURSO_DATABASE_URL", "libsql://example.invalid")
+    monkeypatch.setenv("TURSO_AUTH_TOKEN", "not-a-real-token")
+    path = tmp_path / "local.db"
+
+    writer = db.connect(path)
+    reader = db.connect_readonly(path)
+
+    assert isinstance(writer, sqlite3.Connection) and isinstance(reader, sqlite3.Connection)
+    assert path.exists()
+    writer.close()
+    reader.close()
+
+
+@pytest.mark.parametrize("opener", [db.connect, db.connect_readonly], ids=["connect", "connect_readonly"])
+@pytest.mark.parametrize(
+    ("backend", "credentials", "message"),
+    [
+        ("turso", {}, "needs TURSO_DATABASE_URL and TURSO_AUTH_TOKEN"),
+        ("turso", {"TURSO_DATABASE_URL": "libsql://example.invalid"}, "needs TURSO_AUTH_TOKEN"),
+        ("trso", {}, "must be 'sqlite' or 'turso'"),  # a typo must not quietly fall back to local SQLite
+    ],
+    ids=["no-credentials", "no-token", "unknown-backend"],
+)
+def test_the_turso_backend_fails_clearly_when_misconfigured(monkeypatch, opener, backend, credentials, message):
+    monkeypatch.setenv(db.BACKEND_VARIABLE, backend)
+    for name, value in credentials.items():
+        monkeypatch.setenv(name, value)
+
+    with pytest.raises(db.DatabaseConfigError, match=message):
+        opener()  # fails before any network access
