@@ -140,6 +140,24 @@ def test_fulltext_stores_the_cleaned_page_text_and_keeps_the_feed_text(server, c
     assert len(summary.succeeded) == 1 and summary.failed == []
 
 
+def test_a_feed_with_a_request_delay_is_paused_between_its_page_requests_only(server, conn, monkeypatch):
+    base, routes = server
+    pauses = []
+    monkeypatch.setattr(extract, "time", type("FakeTime", (), {"sleep": pauses.append}))
+    slow = ingest.Feed("Slow", "http://unused/feed", "fulltext", request_delay_seconds=2.5)
+    for path in ("/s1", "/s2", "/s3", "/o1", "/o2"):
+        routes[path] = ok(article_page("T", path[1:].upper()))
+    routes["/s2"] = CLOUDFLARE  # a refused request still counts as a request
+    # Articles alternate between the delayed feed and another one (FULLTEXT has no delay).
+    for path in ("/s1", "/o1", "/s2", "/o2", "/s3"):
+        add(conn, base + path, source="Slow" if path.startswith("/s") else "Site", title="T")
+
+    summary = run(conn, slow, FULLTEXT)
+
+    assert pauses == [2.5, 2.5]  # three Slow requests -> two pauses; none for the other feed
+    assert [o.ok for o in summary.outcomes] == [True, True, False, True, True]  # nothing else changed
+
+
 def test_feed_content_uses_the_feed_text_and_never_touches_the_network(conn):
     # The URL points at a closed port: any attempt to fetch it would fail.
     a = add(conn, "http://127.0.0.1:1/never", source="Notes", feed_text="the whole post")

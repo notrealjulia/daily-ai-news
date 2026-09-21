@@ -19,6 +19,7 @@ This module also holds the page-fetching and extraction helpers, which the
 """
 
 import sqlite3
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -175,12 +176,20 @@ def run_extraction(
     """
     by_name = {feed.name: feed for feed in feeds}
     summary = ExtractionSummary(already_complete=db.body_status_counts(conn)["ready"])
+    requested_from: set[str] = set()  # feeds whose site was already asked for a page this run
 
     for row in db.articles_needing_body(conn):
         feed = by_name.get(row["source"])
         if feed is None:
             summary.not_processed.append((row["source"], row["title"]))
             continue
+
+        # A feed can ask for a pause between its page requests (request_delay_seconds).
+        # This only spaces requests out; retrying is unchanged (a failure waits for the next run).
+        if feed.strategy == "fulltext" and feed.request_delay_seconds:
+            if feed.name in requested_from:
+                time.sleep(feed.request_delay_seconds)
+            requested_from.add(feed.name)
 
         try:
             body, error = acquire_body(

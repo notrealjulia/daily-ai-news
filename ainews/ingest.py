@@ -41,6 +41,9 @@ class Feed:
     # fulltext only: extracted text is cut at the first paragraph equal to one of these
     # (a site's trailing subscription block, say).
     stop_markers: tuple[str, ...] = ()
+    # fulltext only: seconds to wait between two page requests to this feed's site
+    # during one `extract` run (for sites that intermittently refuse rapid requests).
+    request_delay_seconds: float = 0
 
 
 @dataclass
@@ -96,9 +99,14 @@ def load_feeds(path: str | Path = DEFAULT_FEEDS_PATH) -> list[Feed]:
             raise ValueError(f"{path}: feed {name!r}: stop_markers must be a list of strings")
         if stop_markers and strategy != "fulltext":
             raise ValueError(f"{path}: feed {name!r}: stop_markers only apply to strategy 'fulltext'")
+        delay = item.get("request_delay_seconds", 0)
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)) or delay < 0:
+            raise ValueError(f"{path}: feed {name!r}: request_delay_seconds must be a number, 0 or more")
+        if delay and strategy != "fulltext":
+            raise ValueError(f"{path}: feed {name!r}: request_delay_seconds only applies to strategy 'fulltext'")
         if any(feed.name == name for feed in feeds):
             raise ValueError(f"{path}: more than one feed is named {name!r}")
-        feeds.append(Feed(name, url, strategy, tuple(stop_markers)))
+        feeds.append(Feed(name, url, strategy, tuple(stop_markers), delay))
     return feeds
 
 

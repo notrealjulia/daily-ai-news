@@ -398,23 +398,33 @@ FEED = '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\n'
             '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "feed_content"\nstop_markers = ["x"]\n',
             "only apply to strategy 'fulltext'",
         ),
+        (
+            '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "feed_content"\nrequest_delay_seconds = 1\n',
+            "request_delay_seconds only applies to strategy 'fulltext'",
+        ),
+        (FEED + "request_delay_seconds = -1\n", "request_delay_seconds must be a number, 0 or more"),
+        (FEED + 'request_delay_seconds = "1"\n', "request_delay_seconds must be a number, 0 or more"),
         (FEED + "\n" + FEED, "more than one feed is named 'A'"),
     ],
-    ids=["missing-url", "missing-strategy", "unknown-strategy", "stop-markers-on-feed-content", "duplicate-name"],
+    ids=[
+        "missing-url", "missing-strategy", "unknown-strategy", "stop-markers-on-feed-content",
+        "delay-on-feed-content", "negative-delay", "non-number-delay", "duplicate-name",
+    ],
 )
 def test_invalid_feeds_files_are_rejected(tmp_path, toml_text, message):
     with pytest.raises(ValueError, match=message):
         load_toml(tmp_path, toml_text)
 
 
-def test_strategy_and_stop_markers_are_loaded(tmp_path):
+def test_strategy_stop_markers_and_request_delay_are_loaded(tmp_path):
     feeds = load_toml(
         tmp_path,
-        '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\nstop_markers = ["x", "y"]\n\n'
+        '[[feeds]]\nname = "A"\nurl = "https://a"\nstrategy = "fulltext"\nstop_markers = ["x", "y"]\n'
+        "request_delay_seconds = 1.5\n\n"
         '[[feeds]]\nname = "B"\nurl = "https://b"\nstrategy = "feed_content"\n',
     )
     assert feeds == [
-        ingest.Feed("A", "https://a", "fulltext", ("x", "y")),
+        ingest.Feed("A", "https://a", "fulltext", ("x", "y"), 1.5),
         ingest.Feed("B", "https://b", "feed_content", ()),
     ]
 
