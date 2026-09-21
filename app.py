@@ -37,8 +37,8 @@ with page, st.container(gap="xsmall"):
     for row in dashboard.CATEGORY_GRID:
         for column, name in zip(st.columns(2, gap="small"), row):
             category = data.categories[name]
-            # height="stretch" makes both cards in a row as tall as the taller one; the
-            # stretch space then pushes the expander to the bottom of the card.
+            # height="stretch" makes both cards in a row as tall as the taller one. The
+            # content stays at the top, so any extra space ends up below it.
             with column.container(border=True, gap="xsmall", height="stretch"):
                 st.subheader(dashboard.escape_markdown(category.name))
                 if not category.stories:
@@ -48,7 +48,6 @@ with page, st.container(gap="xsmall"):
                     st.markdown(f"#### {dashboard.escape_markdown(category.headline)}")
                 if category.digest:
                     st.markdown(dashboard.escape_markdown(category.digest))
-                st.space("stretch")
                 with st.expander(dashboard.expander_label(category.story_count)):
                     for story in category.stories:
                         st.markdown(dashboard.story_markdown(story))
