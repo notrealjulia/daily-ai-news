@@ -124,7 +124,7 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 - **`.env`**: `OPENAI_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso the dashboard is read-only because of its token, so give it a read-only token. The two databases are independent; nothing syncs them.
 - **`.streamlit/config.toml`**: dashboard settings: telemetry off, minimal toolbar, no first-run email prompt, it listens on `localhost` only, and the compact typography (base font and heading sizes) is set here rather than in CSS.
-- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` and the digest prompt version `v3` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); prompt versions: enrich `v4` (`enrich.py`), cluster `v1` (`stories.py`). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
+- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v4`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
@@ -158,9 +158,10 @@ ainews/
   stories.py      story clustering
   digest.py       per-category digests
   llm.py          the only OpenAI code
+  prompts.py      every prompt's instructions and prompt version (no imports)
   inspect_feed.py onboarding tool
   dashboard.py    what the dashboard shows (no SQL, no Streamlit)
-  defaults.py     default model + digest prompt version (no imports)
+  defaults.py     default model (no imports)
 app.py            Streamlit dashboard: a thin, read-only renderer
 .streamlit/       dashboard settings
 feeds.toml        sources and their strategies

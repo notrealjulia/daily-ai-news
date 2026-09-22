@@ -2,8 +2,9 @@
 
 `app.py` (Streamlit) only renders what this module returns. There is no SQL here (see
 db.py) and no Streamlit, so the logic can be tested without a browser. This module
-imports nothing from the pipeline or the LLM code: only `db` and the two defaults in
-`defaults.py`. That is what makes the dashboard incapable of running a stage or calling
+imports nothing from the pipeline or the LLM code: only `db`, the default model in
+`defaults.py`, and the current digest prompt version in `prompts.py` (import-free, like
+`defaults.py`). That is what makes the dashboard incapable of running a stage or calling
 OpenAI, and a test enforces it.
 
 The dashboard shows the newest story run that is fully processed (every story summarized
@@ -21,7 +22,8 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from ainews import db
-from ainews.defaults import DEFAULT_MODEL, DIGEST_PROMPT_VERSION
+from ainews.defaults import DEFAULT_MODEL
+from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # The six categories shown, in the 2-column grid's reading order (row by row).
 # Spam is deliberately absent: it is never displayed.
