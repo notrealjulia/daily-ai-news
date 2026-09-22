@@ -9,7 +9,7 @@ on:
     # testing, with no error anywhere. 17 7 * * * = 9:17 Europe/Copenhagen while it
     # observes DST (UTC+2). Switch to "33 8 * * *" when Denmark moves to CET (UTC+1),
     # in late October, to keep the same 9:33 local time.
-    - cron: "33 7 * * *"
+    - cron: "33 9 * * *"
 
 permissions:
   contents: read
