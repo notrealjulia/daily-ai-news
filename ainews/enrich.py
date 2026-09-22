@@ -9,6 +9,9 @@ and prompt_version that produced them. The article's own title is never changed.
       article becomes eligible again, alongside the old result.
     - A failed article stores nothing, so it is simply tried again on the next run.
       One failure never stops the others.
+    - Only articles in the last 24h (ingest.MAX_ARTICLE_AGE) are considered, the same
+      window cluster uses. An article that ages out is never enriched, so a persistent
+      failure does not turn into a growing backlog of ever-older retries.
 
 This module knows nothing about any provider; see ainews.llm for that.
 """
@@ -18,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from ainews import db
+from ainews import db, ingest
 from ainews.llm import LLMError, StructuredLLM
 
 # Bump this whenever the instructions, the categories or the input format change, so
@@ -240,13 +243,15 @@ def run_enrichment(
     now: datetime | None = None,
     report: Callable[[Outcome], None] | None = None,
 ) -> EnrichmentSummary:
-    """Enrich every article that has a ready body and no result for this model + prompt.
+    """Enrich every article in the 24h window that has a ready body and no result for this model + prompt.
 
     `report` is called after each article, so a long run can show progress. Each result
     is committed as it happens.
     """
-    overview = db.enrichment_overview(conn, llm.model, prompt_version)
-    waiting = db.articles_needing_enrichment(conn, llm.model, prompt_version, limit)
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    window_start = now - ingest.MAX_ARTICLE_AGE
+    overview = db.enrichment_overview(conn, llm.model, prompt_version, window_start)
+    waiting = db.articles_needing_enrichment(conn, llm.model, prompt_version, window_start, limit)
     summary = EnrichmentSummary(
         already_enriched=overview["enriched"],
         not_ready=overview["not_ready"],
@@ -280,7 +285,7 @@ def run_enrichment(
                 english_title=result.english_title,
                 model=llm.model,
                 prompt_version=prompt_version,
-                created_at=now or datetime.now(timezone.utc),
+                created_at=now,
             )
             conn.commit()
 

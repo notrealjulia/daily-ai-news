@@ -69,11 +69,15 @@ def cmd_extract(args: argparse.Namespace) -> int:
     feeds = ingest.load_feeds(args.feeds)
     conn = db.connect(args.db)
 
-    counts = db.body_status_counts(conn)
-    waiting = counts["pending"] + counts["failed"]
+    # The same window run_extraction itself will use, so this banner matches what the
+    # run below actually does.
+    window_start = datetime.now(timezone.utc) - ingest.MAX_ARTICLE_AGE
+    waiting_rows = db.articles_needing_body(conn, window_start)
+    new = sum(1 for r in waiting_rows if r["body_status"] == "pending")
+    already_complete = db.body_status_counts(conn)["ready"]
     print(
-        f"{counts['ready']} article(s) already complete; {waiting} waiting "
-        f"({counts['pending']} new, {counts['failed']} retrying after an earlier failure)\n"
+        f"{already_complete} article(s) already complete; {len(waiting_rows)} waiting "
+        f"({new} new, {len(waiting_rows) - new} retrying after an earlier failure)\n"
     )
 
     width = max((len(feed.name) for feed in feeds), default=0)
@@ -134,7 +138,9 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         return 2
     conn = db.connect(args.db)
 
-    overview = db.enrichment_overview(conn, client.model, enrich.PROMPT_VERSION)
+    # The same window run_enrichment itself will use, so this banner matches the run below.
+    window_start = datetime.now(timezone.utc) - ingest.MAX_ARTICLE_AGE
+    overview = db.enrichment_overview(conn, client.model, enrich.PROMPT_VERSION, window_start)
     waiting = overview["ready"] - overview["enriched"]
     print(f"Model: {client.model}   prompt_version: {enrich.PROMPT_VERSION}")
     print(

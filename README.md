@@ -32,7 +32,7 @@ flowchart LR
 - **Stages hand off only through SQLite.** Each is an independent CLI command with no in-memory hand-off, so any stage can be rerun, or run on its own schedule, without the others. There is no scheduler or orchestrator yet; you run the commands yourself.
 - **Only three stages use an LLM** (`enrich`, `cluster`, `digest`). `ingest`, `extract` and `inspect-feed` are deterministic.
 - **Results are versioned, not overwritten.** LLM output is keyed by model and prompt version, so a new prompt adds rows next to the old ones. A stage skips work it has already done.
-- **Failures are isolated and retryable.** One failing article, story or category never stops the others, and failed work is retried on the next run. There is no backoff, attempt limit or queue.
+- **Failures are isolated and retryable.** One failing article, story or category never stops the others, and failed work is retried on the next run, as long as it is still within the 24h window. There is no backoff, attempt limit or queue, and nothing is retried forever: once an article ages out of the window it is simply left as it is.
 - **Provider isolation.** Only `ainews/llm.py` imports the OpenAI SDK (a test enforces this); the stages talk to a small `StructuredLLM` interface.
 - **The dashboard is read-only by construction.** It opens SQLite through a read-only connection, and importing its code loads no pipeline or LLM module, so it cannot run a stage or call OpenAI (tests enforce both).
 
@@ -71,8 +71,8 @@ flowchart LR
 |---|---|---|---|---|
 | `inspect-feed URL` | a feed URL and sample article pages | reports feed-wide text stats, feed text vs extracted page text (start and end), and cleanup hints; **decides nothing** | nothing (only files, if `--save-dir` is given) | no |
 | `ingest` | `feeds.toml`, the feeds | keeps entries from the last 24h (UTC), dedups by URL | `articles` (metadata, `feed_text`, `body_status = pending`) | no |
-| `extract` | `articles` without a ready body, `feeds.toml` | per feed: `fulltext` (fetch page, Trafilatura) or `feed_content` (use `feed_text`); cleans the text | `articles.body`, `body_status`, `body_error` | no |
-| `enrich` | articles with a ready body | one call per article: category + summary + an English title when the title isn't English | `enrichments` | yes |
+| `extract` | `articles` in the 24h window without a ready body, `feeds.toml` | per feed: `fulltext` (fetch page, Trafilatura) or `feed_content` (use `feed_text`); cleans the text | `articles.body`, `body_status`, `body_error` | no |
+| `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
 | `streamlit run app.py` | the newest fully processed story run, its digests, and its articles' URLs | displays them; runs nothing | nothing (read-only connection) | no |
@@ -81,9 +81,9 @@ flowchart LR
 
 **ingest** (`ingest.py`). Fetches each feed, keeps entries published within 24 hours (`MAX_ARTICLE_AGE`), compared in UTC; an entry with no usable date is skipped. A feed where *no* entry has a date is "dateless" and is handled by position instead: it assumes newest-first, takes entries until the first URL already stored (only the top entry on the first run), and leaves `published_at` NULL. A URL that isn't an RSS/Atom feed is reported `FAILED` without stopping the other feeds.
 
-**extract** (`extract.py`). The strategy is set per feed in `feeds.toml`. With `fulltext`, a failed fetch or extraction never falls back to the feed's teaser: the article simply has no body and is retried on the next run (some sites intermittently refuse requests; a feed can set `request_delay_seconds` to pause between its page requests, which spaces requests out but doesn't change retrying). Cleanup drops the headline if it repeats as the first paragraph and cuts the text at a per-feed `stop_markers` paragraph (a site's subscription block, say). Articles with a ready body are never fetched again.
+**extract** (`extract.py`). The strategy is set per feed in `feeds.toml`. With `fulltext`, a failed fetch or extraction never falls back to the feed's teaser: the article simply has no body and is retried on the next run, as long as it is still within the 24h window (some sites intermittently refuse requests; a feed can set `request_delay_seconds` to pause between its page requests, which spaces requests out but doesn't change retrying). Like enrich and cluster, extract only looks at articles from the last 24h, so a persistently failing article is retried while it's recent and then simply left alone, never forever. Cleanup drops the headline if it repeats as the first paragraph and cuts the text at a per-feed `stop_markers` paragraph (a site's subscription block, say). Articles with a ready body are never fetched again.
 
-**enrich** (`enrich.py`). Body text (capped at 24,000 characters) goes to the LLM with a strict JSON schema; the answer is `category` (one of seven, including `Spam`), `summary`, and `english_title`: an English translation of the title, or null when the title is already English (so an English title is never rewritten). The answer is validated, never repaired. The article's own `title` is never changed; the translation lives only in `enrichments`. One row per `(article, model, prompt_version)`. Failures store nothing.
+**enrich** (`enrich.py`). Body text (capped at 24,000 characters) goes to the LLM with a strict JSON schema; the answer is `category` (one of seven, including `Spam`), `summary`, and `english_title`: an English translation of the title, or null when the title is already English (so an English title is never rewritten). The answer is validated, never repaired. The article's own `title` is never changed; the translation lives only in `enrichments`. One row per `(article, model, prompt_version)`. Only articles in the 24h window are considered, the same window cluster uses; an article that ages out is never enriched, whatever its body status. Failures store nothing.
 
 **cluster** (`stories.py`). Input is the last 24h (`published_at`, else `fetched_at`) of articles enriched under the current model and prompt, minus Spam. One call groups them from **title and summary only** (the model isn't shown categories, and category equality isn't required); it returns only groups of two or more, so anything unmentioned is its own story and uncertainty defaults to "separate". Single-article stories copy their article's category and summary; each multi-article story gets one more call for a combined summary and category. The result is an immutable **story run**; an unchanged input finds the existing run instead of regrouping, and failed story summaries are retried without regrouping.
 
@@ -111,8 +111,8 @@ Foreign keys cascade on delete. The schema, migrations and every query live in `
 | Stage | Unit of work | Skipped when | On failure |
 |---|---|---|---|
 | ingest | entry | URL already stored | that feed is reported `FAILED`; other feeds continue |
-| extract | article | `body_status = ready` | recorded as `failed` with the error; retried next run |
-| enrich | article | enrichment exists for `(model, prompt_version)` | nothing stored; retried next run |
+| extract | article | `body_status = ready`, or the article has aged out of the 24h window | recorded as `failed` with the error; retried next run while still in the window |
+| enrich | article | enrichment exists for `(model, prompt_version)`, or the article has aged out of the 24h window | nothing stored; retried next run while still in the window |
 | cluster | 24h snapshot | a run with the same models, versions and input exists | grouping: nothing stored; story summary: marked `failed`, retried without regrouping |
 | digest | `(run, category)` | digest exists for `(model, prompt_version)` | nothing stored; retried next run |
 

@@ -5,7 +5,7 @@ network is involved.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -53,11 +53,11 @@ def conn():
     connection.close()
 
 
-def add_ready(conn, title, *, body="The article text.", source="Src", url=None) -> int:
+def add_ready(conn, title, *, body="The article text.", source="Src", url=None, published=NOW) -> int:
     url = url or f"http://x/{title}"
     db.insert_article(
         conn, source=source, url=url, title=title,
-        published_at=NOW, fetched_at=NOW, feed_text="teaser",
+        published_at=published, fetched_at=published, feed_text="teaser",
     )  # fmt: skip
     article_id = conn.execute("SELECT id FROM articles WHERE url = ?", (url,)).fetchone()["id"]
     db.mark_body_ready(conn, article_id, body=body, source="fulltext", checked_at=NOW)
@@ -65,11 +65,11 @@ def add_ready(conn, title, *, body="The article text.", source="Src", url=None) 
     return article_id
 
 
-def add_without_body(conn, title, *, failed=False) -> int:
+def add_without_body(conn, title, *, failed=False, published=NOW) -> int:
     url = f"http://x/{title}"
     db.insert_article(
         conn, source="Src", url=url, title=title,
-        published_at=NOW, fetched_at=NOW, feed_text="teaser",
+        published_at=published, fetched_at=published, feed_text="teaser",
     )  # fmt: skip
     article_id = conn.execute("SELECT id FROM articles WHERE url = ?", (url,)).fetchone()["id"]
     if failed:
@@ -85,7 +85,8 @@ def stored(conn):
 
 
 def run(conn, fake, **kwargs):
-    return enrich.run_enrichment(conn, fake, now=NOW, **kwargs)
+    kwargs.setdefault("now", NOW)
+    return enrich.run_enrichment(conn, fake, **kwargs)
 
 
 def shows(out: str, pattern: str) -> bool:
@@ -310,6 +311,23 @@ def test_only_articles_with_a_ready_body_are_sent_to_the_llm(conn):
     assert summary.not_ready == 2
 
 
+def test_an_article_outside_the_24h_window_is_never_enriched_or_counted(conn):
+    old_ready = add_ready(conn, "Old ready", published=NOW - timedelta(hours=25))
+    add_without_body(conn, "Old pending", published=NOW - timedelta(hours=25))
+    in_window = add_ready(conn, "In window", published=NOW - timedelta(hours=23))
+    fake = FakeLLM()
+
+    summary = run(conn, fake)
+
+    assert [row[0] for row in stored(conn)] == [in_window]  # only the in-window article
+    assert [c["input_text"] for c in fake.calls] and "Old ready" not in fake.calls[0]["input_text"]
+    assert (summary.already_enriched, summary.not_ready) == (0, 0)  # neither old article is counted
+
+    later = run(conn, FakeLLM(), now=NOW + timedelta(hours=2))  # both old articles now 27h+ old
+    assert later.outcomes == [] and later.not_ready == 0  # old_pending never becomes a retry target
+    assert old_ready not in [row[0] for row in stored(conn)]  # still never enriched
+
+
 def test_limit_caps_how_many_articles_are_processed(conn):
     for title in ("One", "Two", "Three", "Four"):
         add_ready(conn, title)
@@ -343,12 +361,15 @@ def cli(monkeypatch, tmp_path):
 
 
 def test_command_summary_shows_successes_failures_skips_and_retryable_failures(cli, capsys):
+    # The command uses the real clock (unlike run(), which pins now=NOW), so these
+    # articles must be recent by wall-clock time, not by the fixed NOW.
+    recent = datetime.now(timezone.utc) - timedelta(hours=1)
     conn, run_command, _ = cli
-    add_ready(conn, "Done already")
+    add_ready(conn, "Done already", published=recent)
     run(conn, FakeLLM(model="fake-model"))  # so one article is already enriched
-    add_ready(conn, "Good one")
-    add_ready(conn, "Bad one")
-    add_without_body(conn, "No body yet")
+    add_ready(conn, "Good one", published=recent)
+    add_ready(conn, "Bad one", published=recent)
+    add_without_body(conn, "No body yet", published=recent)
     fake = FakeLLM(
         by_title(
             **{

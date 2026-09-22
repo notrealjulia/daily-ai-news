@@ -1,13 +1,14 @@
 """Tests for the schema, migration, and the article-body state helpers."""
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from ainews import db
 
 NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+WINDOW_START = NOW - timedelta(hours=24)  # matches ingest.MAX_ARTICLE_AGE
 
 # The schema as first released, before content acquisition existed. Databases created
 # then must be upgraded in place, keeping their data.
@@ -143,7 +144,7 @@ def test_only_articles_without_a_ready_body_need_one(conn):
     db.mark_body_ready(conn, ready, body="text", source="fulltext", checked_at=NOW)
     db.mark_body_failed(conn, failed, error="boom", checked_at=NOW)
 
-    waiting = db.articles_needing_body(conn)
+    waiting = db.articles_needing_body(conn, WINDOW_START)
 
     assert [(r["id"], r["body_status"]) for r in waiting] == [(pending, "pending"), (failed, "failed")]
     assert db.body_status_counts(conn) == {"pending": 1, "ready": 1, "failed": 1}
@@ -176,7 +177,7 @@ def test_only_ready_articles_without_a_result_for_the_pair_need_enriching(conn):
     enrich_row(conn, waiting, model="other-model")
     enrich_row(conn, waiting, prompt_version="v0")
 
-    rows = db.articles_needing_enrichment(conn, "m", "v1")
+    rows = db.articles_needing_enrichment(conn, "m", "v1", WINDOW_START)
 
     assert [r["id"] for r in rows] == [waiting]
     assert rows[0]["body"] == "text"

@@ -4,7 +4,7 @@ Everything runs offline against the local HTTP server fixture from conftest.py.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from helpers import article_page, ok
@@ -27,10 +27,10 @@ def conn():
     connection.close()
 
 
-def add(conn, url, *, source="Site", title="A title", feed_text=None) -> int:
+def add(conn, url, *, source="Site", title="A title", feed_text=None, published=NOW) -> int:
     db.insert_article(
         conn, source=source, url=url, title=title,
-        published_at=NOW, fetched_at=NOW, feed_text=feed_text,
+        published_at=published, fetched_at=published, feed_text=feed_text,
     )  # fmt: skip
     conn.commit()
     return conn.execute("SELECT id FROM articles WHERE url = ?", (url,)).fetchone()["id"]
@@ -41,7 +41,8 @@ def article(conn, article_id):
 
 
 def run(conn, *feeds, **kwargs):
-    return extract.run_extraction(conn, list(feeds), now=NOW, **kwargs)
+    kwargs.setdefault("now", NOW)
+    return extract.run_extraction(conn, list(feeds), **kwargs)
 
 
 # --- cleanup ---------------------------------------------------------------
@@ -250,6 +251,22 @@ def test_a_failure_stays_eligible_and_succeeds_on_a_later_run(server, conn):
     assert len(third.succeeded) == 1 and len(third.recovered) == 1
 
 
+def test_a_failure_stops_being_retried_once_it_ages_out_of_the_24h_window(server, conn):
+    base, routes = server
+    routes["/old"] = CLOUDFLARE
+    old = add(conn, base + "/old", feed_text="teaser", published=NOW - timedelta(hours=23))
+    first = run(conn, FULLTEXT)  # still tried once: it's in the window when this run starts
+    assert routes.hits["/old"] == 1 and article(conn, old)["body_status"] == "failed"
+
+    routes["/old"] = ok(article_page("A title", "ART"))  # would succeed now, if tried
+    later = run(conn, FULLTEXT, now=NOW + timedelta(hours=2))  # now the article is 27h old
+
+    assert routes.hits["/old"] == 1  # not retried: it's outside the window
+    assert article(conn, old)["body_status"] == "failed"  # left exactly as it was
+    assert later.outcomes == []
+    assert len(first.failed) == 1
+
+
 @pytest.mark.parametrize(
     ("failure", "expected_error"),
     [("cloudflare-block", "Cloudflare"), ("unexpected-exception", "unexpected ValueError")],
@@ -299,6 +316,9 @@ def write_feeds(path):
 def test_command_summary_shows_successes_failures_skips_and_retryable_failures(
     server, tmp_path, capsys
 ):
+    # The command uses the real clock (unlike run_extraction(now=NOW) elsewhere in this
+    # file), so these articles must be recent by wall-clock time, not by the fixed NOW.
+    recent = datetime.now(timezone.utc) - timedelta(hours=1)
     base, routes = server
     routes["/done"] = ok(article_page("Done", "DONE"))
     routes["/good"] = ok(article_page("Good", "GOOD"))
@@ -306,11 +326,11 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(
     db_path, feeds_path = tmp_path / "t.db", write_feeds(tmp_path / "feeds.toml")
 
     conn = db.connect(db_path)
-    done = add(conn, base + "/done", title="Already done")
+    done = add(conn, base + "/done", title="Already done", published=recent)
     db.mark_body_ready(conn, done, body="text", source="fulltext", checked_at=NOW)
-    add(conn, base + "/good", title="Good article")
-    add(conn, base + "/blocked", title="Blocked article")
-    add(conn, base + "/notes", source="Notes", title="A note", feed_text="note text")
+    add(conn, base + "/good", title="Good article", published=recent)
+    add(conn, base + "/blocked", title="Blocked article", published=recent)
+    add(conn, base + "/notes", source="Notes", title="A note", feed_text="note text", published=recent)
     conn.commit()
     conn.close()
 

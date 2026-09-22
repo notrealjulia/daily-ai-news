@@ -169,16 +169,20 @@ def run_extraction(
     now: datetime | None = None,
     report: Callable[[Outcome], None] | None = None,
 ) -> ExtractionSummary:
-    """Acquire the body of every article that doesn't have one yet.
+    """Acquire the body of every article in the 24h window that doesn't have one yet.
 
     `report` is called after each article, so a long run can show progress.
-    Each result is committed as it happens, so an interruption loses nothing.
+    Each result is committed as it happens, so an interruption loses nothing. An article
+    that ages out of the window is left alone from then on, so a persistent failure is
+    retried only while it is still recent, never forever.
     """
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    window_start = now - ingest.MAX_ARTICLE_AGE
     by_name = {feed.name: feed for feed in feeds}
     summary = ExtractionSummary(already_complete=db.body_status_counts(conn)["ready"])
     requested_from: set[str] = set()  # feeds whose site was already asked for a page this run
 
-    for row in db.articles_needing_body(conn):
+    for row in db.articles_needing_body(conn, window_start):
         feed = by_name.get(row["source"])
         if feed is None:
             summary.not_processed.append((row["source"], row["title"]))
@@ -198,7 +202,7 @@ def run_extraction(
         except Exception as e:  # one article must never stop the rest
             body, error = None, f"unexpected {type(e).__name__}: {e}"
 
-        checked_at = now or datetime.now(timezone.utc)
+        checked_at = now
         if body is not None:
             db.mark_body_ready(
                 conn, row["id"], body=body, source=feed.strategy, checked_at=checked_at

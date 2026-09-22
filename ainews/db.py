@@ -281,15 +281,23 @@ def insert_article(
 # --- Content acquisition -----------------------------------------------------
 
 
-def articles_needing_body(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Every article whose body is not ready: never tried, or last attempt failed."""
+def articles_needing_body(conn: sqlite3.Connection, window_start: datetime) -> list[sqlite3.Row]:
+    """Every article in the 24h window whose body is not ready: never tried, or last attempt failed.
+
+    An article's time is its published_at, or fetched_at when the feed gave no date (the
+    same rule enrich and cluster use). An article that ages out of the window is left
+    alone from then on, so a persistent failure is retried only while it is still recent,
+    never forever.
+    """
     return conn.execute(
         """
         SELECT id, source, url, title, feed_text, body_status
         FROM articles
         WHERE body_status != 'ready'
+          AND COALESCE(published_at, fetched_at) >= ?
         ORDER BY id
-        """
+        """,
+        (_format_timestamp(window_start),),
     ).fetchall()
 
 
@@ -332,14 +340,24 @@ def mark_body_failed(
 
 
 def articles_needing_enrichment(
-    conn: sqlite3.Connection, model: str, prompt_version: str, limit: int | None = None
+    conn: sqlite3.Connection,
+    model: str,
+    prompt_version: str,
+    window_start: datetime,
+    limit: int | None = None,
 ) -> list[sqlite3.Row]:
-    """Articles with a ready body and no enrichment yet for this model + prompt_version."""
+    """Articles in the 24h window with a ready body and no enrichment yet for this model + prompt_version.
+
+    An article's time is its published_at, or fetched_at when the feed gave no date. An
+    article that ages out of the window is never enriched again, even if it has no
+    result yet: this is what keeps the backlog from growing without bound.
+    """
     return conn.execute(
         """
         SELECT id, source, title, url, body
         FROM articles
         WHERE body_status = 'ready'
+          AND COALESCE(published_at, fetched_at) >= ?
           AND NOT EXISTS (
               SELECT 1 FROM enrichments e
               WHERE e.article_id = articles.id AND e.model = ? AND e.prompt_version = ?
@@ -347,29 +365,34 @@ def articles_needing_enrichment(
         ORDER BY id
         LIMIT ?
         """,
-        (model, prompt_version, -1 if limit is None else limit),
+        (_format_timestamp(window_start), model, prompt_version, -1 if limit is None else limit),
     ).fetchall()
 
 
-def enrichment_overview(conn: sqlite3.Connection, model: str, prompt_version: str) -> dict[str, int]:
-    """Counts: ready articles, how many of those are enriched, and articles without a ready body."""
-    counts = body_status_counts(conn)
-    enriched = conn.execute(
+def enrichment_overview(
+    conn: sqlite3.Connection, model: str, prompt_version: str, window_start: datetime
+) -> dict[str, int]:
+    """Counts within the 24h window: ready articles, how many of those are enriched for
+    this model + prompt_version, and articles without a ready body yet.
+
+    Windowed the same way articles_needing_enrichment is, so these counts describe
+    exactly what a run can act on, not the whole history of the database.
+    """
+    row = conn.execute(
         """
-        SELECT COUNT(*) FROM articles
-        WHERE body_status = 'ready'
-          AND EXISTS (
-              SELECT 1 FROM enrichments e
-              WHERE e.article_id = articles.id AND e.model = ? AND e.prompt_version = ?
-          )
+        SELECT
+            COALESCE(SUM(CASE WHEN body_status = 'ready' THEN 1 ELSE 0 END), 0) AS ready,
+            COALESCE(SUM(CASE WHEN body_status = 'ready' AND EXISTS (
+                SELECT 1 FROM enrichments e
+                WHERE e.article_id = articles.id AND e.model = ? AND e.prompt_version = ?
+            ) THEN 1 ELSE 0 END), 0) AS enriched,
+            COALESCE(SUM(CASE WHEN body_status != 'ready' THEN 1 ELSE 0 END), 0) AS not_ready
+        FROM articles
+        WHERE COALESCE(published_at, fetched_at) >= ?
         """,
-        (model, prompt_version),
-    ).fetchone()[0]
-    return {
-        "ready": counts["ready"],
-        "enriched": enriched,
-        "not_ready": counts["pending"] + counts["failed"],
-    }
+        (model, prompt_version, _format_timestamp(window_start)),
+    ).fetchone()
+    return {"ready": row["ready"], "enriched": row["enriched"], "not_ready": row["not_ready"]}
 
 
 def insert_enrichment(
