@@ -1,4 +1,4 @@
-"""Command line entry point: `python -m ainews ingest | extract | enrich | inspect-feed`."""
+"""Command line entry point: `python -m ainews ingest | extract | enrich | narrate | inspect-feed`."""
 
 import argparse
 import sqlite3
@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from ainews import db, ingest
 
 if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs the OpenAI SDK
-    from ainews import digest, enrich, extract, stories
+    from ainews import digest, enrich, extract, narrate, stories
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
@@ -344,6 +344,60 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return 1 if summary.failed else 0
 
 
+def cmd_narrate(args: argparse.Namespace) -> int:
+    from ainews import llm, narrate
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        client = llm.create(args.model or llm.DEFAULT_MODEL)  # writes each script
+        tts = llm.create_tts()  # turns each script into audio
+    except llm.LLMConfigError as e:
+        print(f"Cannot narrate: {e}")
+        return 2
+    conn = db.connect(args.db)
+
+    summary = narrate.narrate_all_categories(
+        conn, client, tts, report=lambda outcome: print(_format_narration_outcome(outcome), flush=True)
+    )
+    if summary.run_id is None:
+        print("No fully processed run to narrate. Run `python -m ainews digest` first.")
+        return 1
+
+    print()
+    for line in _format_narration_summary(summary):
+        print(line)
+    return 1 if summary.failed else 0
+
+
+def _format_narration_outcome(o: "narrate.NarrationOutcome") -> str:
+    if not o.ok:
+        return f"  {'FAILED':<7} {o.category:<20} - {o.error}"
+    words = len(o.script.split())
+    line = f"  {'ok':<7} {o.category:<20} {words:>3} words"
+    # Never stored as text anywhere else, so printing it here is the only way to review it.
+    return f"{line}\n      {o.script}\n"
+
+
+def _format_narration_summary(s: "narrate.NarrationSummary") -> list[str]:
+    lines = [
+        "SUMMARY",
+        f"  narrated this run:          {len(s.succeeded):>4}",
+        f"  failed this run:            {len(s.failed):>4}",
+        f"  categories with no stories: {len(s.no_stories):>4}",
+    ]
+    if s.failed:
+        lines.append("")
+        lines.append(
+            "Retryable failures (existing audio, if any, was left untouched; "
+            "run `python -m ainews narrate` again):"
+        )
+        for reason, count in Counter(o.error for o in s.failed).most_common():
+            lines.append(f"  {count} x {reason}")
+    return lines
+
+
 def _format_digest_outcome(o: "digest.DigestOutcome") -> str:
     stories = f"{o.story_count} stor{'y' if o.story_count == 1 else 'ies'}"
     if o.ok:
@@ -439,6 +493,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     digest_parser.add_argument("--run", type=int, default=None, help="story run id (default: latest)")
     digest_parser.set_defaults(func=cmd_digest)
+
+    narrate_parser = subcommands.add_parser(
+        "narrate",
+        help="turn today's stories into a spoken briefing per category, audio/<category>.mp3",
+        description="For every non-Spam category with stories today: write a short spoken "
+        "briefing script (title + summary + source article text, not the digest), persist "
+        "it, then read it aloud with OpenAI TTS and overwrite that category's fixed MP3 "
+        "file (e.g. audio/research.mp3, audio/product-release.mp3). One category's failure "
+        "never stops the others. Each script is printed here for review, but never shown "
+        "in the dashboard.",
+    )
+    narrate_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    narrate_parser.add_argument(
+        "--model", default=None, help="OpenAI model id for the scripts (default: the one set in ainews/llm.py)"
+    )
+    narrate_parser.set_defaults(func=cmd_narrate)
 
     inspect_parser = subcommands.add_parser(
         "inspect-feed",

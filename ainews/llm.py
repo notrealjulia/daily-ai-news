@@ -1,12 +1,14 @@
 """The only module that knows which LLM provider we use (currently OpenAI).
 
-Everything else talks to the small `StructuredLLM` interface below: give it
+Everything else talks to one of two small interfaces below. `StructuredLLM`: give it
 instructions, an input and a JSON schema, get back a dict that matches the schema.
-Swapping providers means writing another class with the same `generate` method here.
+`TextToSpeech`: give it text, get back MP3 bytes. Swapping providers means writing
+another class with the same methods here.
 
 The OpenAI implementation uses the Responses API with Structured Outputs
 (`text.format` of type `json_schema`, `strict: true`), which OpenAI's current
-documentation recommends for structured output.
+documentation recommends for structured output, and the Audio API (`audio.speech`)
+for text-to-speech.
 """
 
 import json
@@ -27,6 +29,10 @@ DEFAULT_REASONING_EFFORT = "low"
 # You are only billed for tokens actually used.
 DEFAULT_MAX_OUTPUT_TOKENS = 8000
 REQUEST_TIMEOUT_SECONDS = 90
+
+# Text-to-speech defaults (ainews.narrate is the only current caller).
+DEFAULT_TTS_MODEL = "gpt-4o-mini-tts"
+DEFAULT_TTS_VOICE = "alloy"
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 API_KEY_VARIABLE = "OPENAI_API_KEY"
@@ -53,6 +59,14 @@ class StructuredLLM(Protocol):
         self, *, instructions: str, input_text: str, schema_name: str, schema: dict
     ) -> dict:
         """Return a dict matching `schema`, or raise LLMError."""
+        ...
+
+
+class TextToSpeech(Protocol):
+    """What the narrate stage needs from any text-to-speech provider."""
+
+    def synthesize(self, text: str) -> bytes:
+        """Return audio bytes (MP3) for `text`, or raise LLMError."""
         ...
 
 
@@ -141,6 +155,44 @@ class OpenAIStructuredLLM:
         return message.replace(self._secret, "***") if self._secret else message
 
 
+class OpenAITextToSpeech:
+    def __init__(
+        self,
+        model: str = DEFAULT_TTS_MODEL,
+        voice: str = DEFAULT_TTS_VOICE,
+        *,
+        api_key: str | None = None,
+        client: openai.OpenAI | None = None,
+    ) -> None:
+        """`client` lets tests supply an SDK client wired to a fake transport."""
+        self.model = model
+        self.voice = voice
+        self._secret = api_key
+        if client is None:
+            api_key = api_key or os.environ.get(API_KEY_VARIABLE)
+            if not api_key:
+                raise LLMConfigError(
+                    f"{API_KEY_VARIABLE} is not set. Put it in the .env file in the project "
+                    "folder (see .env.example) or set it in the environment."
+                )
+            self._secret = api_key
+            client = openai.OpenAI(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+        self._client = client
+
+    def synthesize(self, text: str) -> bytes:
+        try:
+            response = self._client.audio.speech.create(
+                model=self.model, voice=self.voice, input=text, response_format="mp3"
+            )
+        except openai.APIError as e:  # connection, timeout and HTTP status errors alike
+            raise LLMError(self._redact(_describe_api_error(e))) from e
+        return response.content
+
+    def _redact(self, message: str) -> str:
+        """Never let the API key leak into an error message we print."""
+        return message.replace(self._secret, "***") if self._secret else message
+
+
 def _describe_api_error(e: openai.APIError) -> str:
     if isinstance(e, openai.APIStatusError):
         return f"{type(e).__name__} (HTTP {e.status_code}): {e.message}"
@@ -156,3 +208,9 @@ def create(model: str = DEFAULT_MODEL) -> OpenAIStructuredLLM:
     """
     api_key = os.environ.get(API_KEY_VARIABLE) or dotenv_values(ENV_PATH).get(API_KEY_VARIABLE)
     return OpenAIStructuredLLM(model, api_key=api_key)
+
+
+def create_tts(model: str = DEFAULT_TTS_MODEL, voice: str = DEFAULT_TTS_VOICE) -> OpenAITextToSpeech:
+    """Build the text-to-speech provider the narrate command uses. Same key lookup as create()."""
+    api_key = os.environ.get(API_KEY_VARIABLE) or dotenv_values(ENV_PATH).get(API_KEY_VARIABLE)
+    return OpenAITextToSpeech(model, voice, api_key=api_key)

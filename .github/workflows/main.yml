@@ -12,7 +12,7 @@ on:
     - cron: "33 9 * * *"
 
 permissions:
-  contents: read
+  contents: write  # the last step commits and pushes the day's narration audio
 
 concurrency:
   group: daily-ai-news
@@ -55,3 +55,32 @@ jobs:
 
       - name: Generate digests
         run: python -m ainews digest
+
+      - name: Generate narration audio
+        run: python -m ainews narrate
+        # One category's script/TTS failure must not lose the other categories' audio:
+        # narrate.py already isolates that per category, but a non-zero exit here would
+        # otherwise also skip the commit-and-push step below for every category,
+        # including the ones that succeeded. continue-on-error lets the job carry on;
+        # the step is still shown as failed in the run summary, so a bad day is visible.
+        continue-on-error: true
+
+      - name: Commit and push updated audio files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Only ever stages audio/*.mp3 - never `git add -A` or `git add .` - so nothing
+          # else generated during the run (there shouldn't be anything, since
+          # AINEWS_BACKEND=turso means no local database file is created either) can be
+          # committed by accident. `|| true` covers the very first run, before audio/
+          # exists at all, when the glob matches nothing.
+          git add audio/*.mp3 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No audio changes to commit."
+          else
+            git commit -m "Update daily narration audio"
+            # HEAD:<branch>, not a bare `git push`: works whether or not this checkout
+            # left HEAD detached (schedule/workflow_dispatch shouldn't, but this needs no
+            # tracking branch to already be set up either way).
+            git push origin HEAD:${{ github.ref_name }}
+          fi

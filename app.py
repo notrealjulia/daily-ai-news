@@ -56,6 +56,8 @@ with page, st.container(gap="xsmall"):
                     st.markdown(f"#### {dashboard.escape_markdown(category.headline)}")
                 if category.digest:
                     st.markdown(dashboard.escape_markdown(category.digest))
+                if audio := dashboard.category_audio_path(name):
+                    st.audio(audio, format="audio/mp3")
                 with st.expander(dashboard.expander_label(category.story_count)):
                     for story in category.stories:
                         st.markdown(dashboard.story_markdown(story))

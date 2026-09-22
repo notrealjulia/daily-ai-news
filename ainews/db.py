@@ -123,6 +123,23 @@ CREATE TABLE IF NOT EXISTS digests (
     headline          TEXT,                    -- NULL for digests written before headlines existed
     UNIQUE (run_id, category, model, prompt_version)
 );
+
+-- A generated spoken-narration script (ainews.narrate), tied to the story run and
+-- category it was written from - MVP: category is always 'Research', but the column
+-- mirrors digests' so this needs no schema change if that widens later. Unlike digests,
+-- there is no UNIQUE(run_id, category, model, prompt_version): narrate is a manual,
+-- on-demand action, and rerunning it is meant to produce a fresh take, not be skipped
+-- because one already exists. Every row is immutable and kept; nothing is ever deleted
+-- or overwritten here. The audio itself is never stored, only the script that made it.
+CREATE TABLE IF NOT EXISTS narrations (
+    id             INTEGER PRIMARY KEY,
+    run_id         INTEGER NOT NULL REFERENCES story_runs (id) ON DELETE CASCADE,
+    category       TEXT NOT NULL,
+    script         TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+);
 """
 
 # Columns the first design of `enrichments` had and the current one does not.
@@ -649,6 +666,28 @@ def insert_digest(
     return cursor.rowcount == 1
 
 
+def insert_narration(
+    conn: sqlite3.Connection,
+    *,
+    run_id: int,
+    category: str,
+    script: str,
+    model: str,
+    prompt_version: str,
+    created_at: datetime,
+) -> int:
+    """Store a narration script. Always inserts a new row (no dedup: see the schema
+    comment on `narrations`) and returns its id."""
+    cursor = conn.execute(
+        """
+        INSERT INTO narrations (run_id, category, script, model, prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (run_id, category, script, model, prompt_version, _format_timestamp(created_at)),
+    )
+    return cursor.lastrowid
+
+
 # --- Read-only access for the dashboard --------------------------------------
 
 
@@ -735,6 +774,25 @@ def story_article_links(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.R
     ).fetchall()
 
 
+def story_article_bodies(conn: sqlite3.Connection, run_id: int) -> list[sqlite3.Row]:
+    """Every article of every story in a run, with its source and full extracted body -
+    for giving an LLM the underlying source material, not for display (story_article_links
+    is the lighter query the dashboard uses). Articles with no body are excluded; this
+    should not happen for an article already in a story, since clustering only ever
+    works from enriched articles, which requires a ready body.
+    """
+    return conn.execute(
+        """
+        SELECT sa.story_id, a.id AS article_id, a.source, a.body
+        FROM story_articles sa
+        JOIN articles a ON a.id = sa.article_id
+        WHERE sa.run_id = ? AND a.body IS NOT NULL AND a.body != ''
+        ORDER BY sa.story_id, a.id
+        """,
+        (run_id,),
+    ).fetchall()
+
+
 def digests_for_run(
     conn: sqlite3.Connection, run_id: int, *, model: str, prompt_version: str
 ) -> list[sqlite3.Row]:
@@ -746,4 +804,17 @@ def digests_for_run(
         ORDER BY id
         """,
         (run_id, model, prompt_version),
+    ).fetchall()
+
+
+def narrations_for_run(conn: sqlite3.Connection, run_id: int, *, category: str | None = None) -> list[sqlite3.Row]:
+    """A run's narrations, oldest first (there can be more than one: see the schema
+    comment on `narrations`). `category` narrows to one category; None returns all."""
+    if category is None:
+        return conn.execute(
+            "SELECT * FROM narrations WHERE run_id = ? ORDER BY id", (run_id,)
+        ).fetchall()  # fmt: skip
+    return conn.execute(
+        "SELECT * FROM narrations WHERE run_id = ? AND category = ? ORDER BY id",
+        (run_id, category),
     ).fetchall()

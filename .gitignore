@@ -19,3 +19,7 @@ dist/
 
 # Streamlit secrets (the hosted dashboard's Turso settings live here)
 .streamlit/secrets.toml
+
+# audio/*.mp3 is deliberately NOT ignored: the daily GitHub Actions run commits the
+# narration files here, and the deployed Streamlit app reads them straight from the repo
+# checkout (see the workflow's "Commit and push" step and README's Deployment section).

@@ -2,10 +2,10 @@
 
 `app.py` (Streamlit) only renders what this module returns. There is no SQL here (see
 db.py) and no Streamlit, so the logic can be tested without a browser. This module
-imports nothing from the pipeline or the LLM code: only `db`, the default model in
-`defaults.py`, and the current digest prompt version in `prompts.py` (import-free, like
-`defaults.py`). That is what makes the dashboard incapable of running a stage or calling
-OpenAI, and a test enforces it.
+imports nothing from the pipeline or the LLM code: only `db`, and the import-free
+settings in `defaults.py` (the default model, and where `narrate` writes each category's
+narration) and `prompts.py` (the current digest prompt version). That is what makes the
+dashboard incapable of running a stage or calling OpenAI, and a test enforces it.
 
 The dashboard shows the newest story run that is fully processed (every story summarized
 and every category digested with the current digest prompt and default model). A run
@@ -22,7 +22,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from ainews import db
-from ainews.defaults import DEFAULT_MODEL
+from ainews.defaults import DEFAULT_MODEL, audio_path
 from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # The six categories shown, in the 2-column grid's reading order (row by row).
@@ -221,6 +221,15 @@ def sources_caption(path: str | Path = "feeds.toml") -> str | None:
         return None
     names = [escape_markdown(feed["name"]) for feed in feeds if "name" in feed]
     return f"Sources monitored: {' · '.join(names)}" if names else None
+
+
+def category_audio_path(category: str) -> Path | None:
+    """A category's narration file (see ainews.narrate), or None if it hasn't been made yet.
+
+    One fixed path per category, checked for existence only; never generated here.
+    """
+    path = audio_path(category)
+    return path if path.is_file() else None
 
 
 def format_header(dashboard: Dashboard, tz: tzinfo | None = None) -> str:

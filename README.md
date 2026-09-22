@@ -75,6 +75,7 @@ flowchart LR
 | `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
+| `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (`gpt-4o-mini-tts`, `alloy`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
 | `streamlit run app.py` | the newest fully processed story run, its digests, and its articles' URLs | displays them; runs nothing | nothing (read-only connection) | no |
 
 ## Stage details
@@ -91,6 +92,8 @@ flowchart LR
 
 **dashboard** (`app.py`, `dashboard.py`). A read-only page: a header (last updated in local time, the 24h window, story and article counts) and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, and a collapsed "View N stories" list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `app.py` is a thin renderer with no SQL, pipeline or OpenAI code; `dashboard.py` builds what it shows from queries in `db.py`.
 
+**narrate** (`narrate.py`). Every non-Spam category that has stories today gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to OpenAI TTS (`gpt-4o-mini-tts`, voice `alloy`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no stories is skipped; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
+
 **inspect-feed** (`inspect_feed.py`). Onboarding aid for a new feed. It reuses the same fetching and extraction code as `extract`, so it evaluates what the pipeline would actually do, and it leaves choosing a strategy (and editing `feeds.toml`) to you.
 
 ## Data model
@@ -103,6 +106,7 @@ flowchart LR
 | `stories` | a story's `category`, `summary`, `summary_status`, `grouping_reason` | belongs to a run |
 | `story_articles` | which articles form each story | unique `(run, article)`: an article is in one story per run |
 | `digests` | per category: `story_count`, `total_story_count`, `headline`, `summary` (`headline` is NULL on digests written before headlines existed) | unique `(run, category, model, prompt_version)` |
+| `narrations` | a generated `script` per category with its `category`, `model`, `prompt_version` | belongs to a run; **no** unique constraint - see narrate below |
 
 Foreign keys cascade on delete. The schema, migrations and every query live in `ainews/db.py`; older databases are upgraded in place on connect. SQLite runs in WAL mode, so the dashboard can read while a stage writes.
 
@@ -139,12 +143,35 @@ python -m ainews extract
 python -m ainews enrich              # --limit N to cap a run
 python -m ainews cluster
 python -m ainews digest
+python -m ainews narrate             # one briefing script + MP3 per category with stories, audio/<category>.mp3
 
 streamlit run app.py                 # the read-only dashboard; run it from the project folder
 
 python -m ainews inspect-feed <feed-url> --samples 3   # evaluate a new source
 pytest                                                 # offline; uses fakes, never the real API
 ```
+
+## Deployment
+
+GitHub Actions (`.github/workflows/main.yml`) runs the whole pipeline daily against the
+hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, digest,
+then narrate. The narrate step uses `continue-on-error: true`, since one category's
+script or TTS failure must not stop the rest, or skip committing the categories that
+*did* succeed.
+
+The last step commits and pushes only `audio/*.mp3` (never `git add -A`) to the repo, as
+the `github-actions[bot]` identity, using the workflow's own `GITHUB_TOKEN` (needs
+`permissions: contents: write`, already set) - no extra secret. It's a no-op when nothing
+changed (all TTS calls failed, say). Streamlit Community Cloud redeploys automatically
+whenever the connected repo's default branch gets a new commit, which is a normal `git
+pull` of the whole repo: the newly committed MP3s just become files in the app's
+checkout, and `st.audio` (see `app.py`) reads them like any other file already in the
+repo, the same way it does locally. No separate storage, no upload step, no new
+Streamlit secret - the audio "deploys" simply by being committed.
+
+One tradeoff worth knowing: this keeps every day's audio in git history forever, which
+grows the repo indefinitely. Not addressed here (squashing history or moving to real
+object storage both change more than this feature should).
 
 ## Layout
 
@@ -157,23 +184,17 @@ ainews/
   enrich.py       category, summary and English title per article
   stories.py      story clustering
   digest.py       per-category digests
-  llm.py          the only OpenAI code
+  llm.py          the only OpenAI code (structured JSON calls and text-to-speech)
+  narrate.py      per-category stories -> briefing script -> audio/<category>.mp3
   prompts.py      every prompt's instructions and prompt version (no imports)
   inspect_feed.py onboarding tool
   dashboard.py    what the dashboard shows (no SQL, no Streamlit)
-  defaults.py     default model (no imports)
+  defaults.py     default model, audio_path(category) (no imports)
 app.py            Streamlit dashboard: a thin, read-only renderer
+audio/            narration MP3s, one per category; committed by GitHub Actions daily
 .streamlit/       dashboard settings
 feeds.toml        sources and their strategies
 tests/            offline tests
 ```
 
-## Not built, and known limits
 
-- **The dashboard is deliberately minimal**: no search, filters, charts or pipeline controls. Story titles are the earliest article's title (in English), which can disagree with a multi-source story's combined summary.
-- **No scheduler**: stages are run by hand.
-- **Prompt rules that code doesn't enforce**: summary length (at most 4 sentences), the headline's length (6 to 12 words; only a runaway over 150 characters is rejected) and factual tone, that an English title is returned as null rather than reworded, and the digest's "no historical comparison" are asked for in the prompt, and reviewed on real output rather than checked in code.
-- **Failure reasons**: for enrichment, grouping and digest failures the reason appears only in that run's output. Only `extract` (`articles.body_error`) and combined story summaries (`stories.summary_error`) keep an error in the database.
-- **Extraction**: a very short extraction is not treated as a failure, and one site's extraction can drop an article's first sentence.
-- **Dateless feeds** rely on the feed being ordered newest-first.
-- **Stories are not ranked or scored**, and clustering reads only the current enrichment version.

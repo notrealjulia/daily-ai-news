@@ -207,6 +207,55 @@ def test_the_environment_takes_precedence_over_the_env_file(monkeypatch, tmp_pat
     assert llm.create()._client.api_key == "sk-from-the-environment"
 
 
+# --- text to speech (ainews.narrate) ------------------------------------------
+
+
+def make_tts(handler, **kwargs) -> llm.OpenAITextToSpeech:
+    client = openai.OpenAI(
+        api_key=KEY,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
+    )
+    return llm.OpenAITextToSpeech("some-tts-model", "some-voice", api_key=KEY, client=client, **kwargs)
+
+
+def test_the_tts_request_and_the_returned_audio_bytes():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"], seen["method"] = request.url.path, request.method
+        seen["auth"] = request.headers["authorization"]
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, content=b"fake-mp3-bytes")
+
+    audio = make_tts(handler).synthesize("Read this aloud.")
+
+    assert audio == b"fake-mp3-bytes"
+    assert (seen["method"], seen["path"]) == ("POST", "/v1/audio/speech")
+    assert seen["auth"] == f"Bearer {KEY}"
+    body = seen["body"]
+    assert (body["model"], body["voice"], body["input"]) == ("some-tts-model", "some-voice", "Read this aloud.")
+    assert body["response_format"] == "mp3"
+
+
+def test_tts_defaults_are_the_documented_model_and_voice():
+    assert (llm.DEFAULT_TTS_MODEL, llm.DEFAULT_TTS_VOICE) == ("gpt-4o-mini-tts", "alloy")
+
+
+def test_tts_http_errors_become_llm_errors():
+    payload = {"error": {"message": "the server said no", "type": "x", "code": None}}
+
+    with pytest.raises(llm.LLMError, match="the server said no"):
+        make_tts(answering(payload, status_code=429)).synthesize("text")
+
+
+def test_creating_tts_without_any_key_explains_what_to_do(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY")
+
+    with pytest.raises(llm.LLMConfigError, match=r"OPENAI_API_KEY is not set.*\.env"):
+        llm.create_tts()
+
+
 def test_only_llm_py_talks_to_the_openai_sdk():
     # The provider boundary: swapping providers must only ever mean editing llm.py.
     # Read the code as code (not text), so no way of writing an import can slip past.

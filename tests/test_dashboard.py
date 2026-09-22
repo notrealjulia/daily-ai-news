@@ -266,6 +266,28 @@ def test_the_footer_lists_the_source_names_from_feeds_toml(tmp_path, content, ex
     assert dashboard.sources_caption(path) == expected
 
 
+def test_category_audio_path_reflects_only_whether_the_file_exists(tmp_path, monkeypatch):
+    audio_file = tmp_path / "research.mp3"
+    monkeypatch.setattr(dashboard, "audio_path", lambda category: audio_file)
+
+    assert dashboard.category_audio_path("Research") is None  # narrate hasn't run yet
+
+    audio_file.write_bytes(b"fake-audio-bytes")
+    assert dashboard.category_audio_path("Research") == audio_file
+
+
+@pytest.mark.parametrize(
+    ("category", "expected"),
+    [
+        ("Research", "audio/research.mp3"),
+        ("Product Release", "audio/product-release.mp3"),
+        ("Regulation & Policy", "audio/regulation-policy.mp3"),
+    ],
+)
+def test_audio_path_is_one_fixed_file_per_category(category, expected):
+    assert defaults.audio_path(category) == Path(expected)
+
+
 # --- read-only, and no way to reach the pipeline -----------------------------
 
 
@@ -333,6 +355,7 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     assert not app.exception
     if not with_data:
         assert "No completed run yet" in app.info[0].value
+        assert app.get("audio") == []  # no narration file, no player
         return
     everything = " ".join(
         [m.value for m in app.markdown] + [c.value for c in app.caption] + [e.label for e in app.expander]
@@ -347,6 +370,29 @@ def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
     assert "Spam" not in everything
     assert "Sources monitored: OpenAI · Simon Willison" in everything
     assert "openai.com" not in everything and "fulltext" not in everything  # names only
+    assert app.get("audio") == []  # narrate hasn't run in this test, so no player
+
+
+def test_the_streamlit_app_shows_the_research_audio_player_only_when_the_file_exists(tmp_path, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.chdir(tmp_path)  # app.py reads ./audio/research.mp3, like the command line does
+    conn = db.connect(tmp_path / "ainews.db")
+    # A second non-empty category, so the assertion below can't pass merely because
+    # Research happens to be the only category with a card worth putting a player on.
+    add_run(conn, [
+        ("Research", "A research story.", [add_article(conn, "A research article")]),
+        ("Business", "A business story.", [add_article(conn, "A business article", url="https://x.test/b")]),
+    ])  # fmt: skip
+    conn.close()
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "research.mp3").write_bytes(b"fake-mp3-bytes")
+
+    app = AppTest.from_file(str(APP), default_timeout=30).run()
+
+    assert not app.exception
+    assert len(app.get("audio")) == 1  # exactly one player, and only Research has the file
 
 
 def test_the_deployed_app_takes_its_database_settings_from_streamlit_secrets(tmp_path, monkeypatch):
