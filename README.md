@@ -122,6 +122,8 @@ Foreign keys cascade on delete. The schema, migrations and every query live in `
 
 Each LLM stage has its own model and prompt version. Changing either makes the affected work eligible again alongside the old results; nothing is deleted.
 
+**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), or a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run) - exits non-zero.
+
 ## Configuration
 
 - **`feeds.toml`**: one `[[feeds]]` table per source, with `name`, `url`, `strategy` (`feed_content` or `fulltext`, required) and optional `stop_markers` and `request_delay_seconds` (both `fulltext` only; OpenAI waits 1 second between page requests, because its pages intermittently return a Cloudflare 403). Feeds whose own text is complete, such as Simon Willison's, use `feed_content`; the rest use `fulltext`.

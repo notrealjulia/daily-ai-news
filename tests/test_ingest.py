@@ -461,7 +461,7 @@ def test_ingest_command_fails_a_non_feed_and_still_ingests_the_other_feeds(serve
     code = main(["ingest", "--feeds", str(feeds_path), "--db", str(db_path)])
     out = capsys.readouterr().out
 
-    assert code == 1
+    assert code == 0  # one bad feed is isolated and retried, not a stage failure
     failed_line = next(line for line in out.splitlines() if line.startswith("Not a feed"))
     assert "FAILED" in failed_line and "not an RSS/Atom feed" in failed_line
     assert "found" not in failed_line  # not silently reported as "found 0"

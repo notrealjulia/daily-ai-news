@@ -58,12 +58,10 @@ jobs:
 
       - name: Generate narration audio
         run: python -m ainews narrate
-        # One category's script/TTS failure must not lose the other categories' audio:
-        # narrate.py already isolates that per category, but a non-zero exit here would
-        # otherwise also skip the commit-and-push step below for every category,
-        # including the ones that succeeded. continue-on-error lets the job carry on;
-        # the step is still shown as failed in the run summary, so a bad day is visible.
-        continue-on-error: true
+        # No continue-on-error needed: `narrate` itself now only exits non-zero for a
+        # genuine stage failure (no fully processed run, config/database problems), not
+        # for one category's isolated script/TTS failure, which it already reports and
+        # isolates internally.
 
       - name: Commit and push updated audio files
         run: |

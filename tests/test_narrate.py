@@ -380,7 +380,7 @@ def test_narrate_command_reports_no_run_isolates_a_failure_and_writes_per_catego
     code = main(["narrate", "--db", str(db_path)])
     out = capsys.readouterr().out
 
-    assert code == 1  # one category failed
+    assert code == 0  # a retryable per-category failure is not a stage failure
     assert "ok" in out and "Research" in out and GOOD_SCRIPT["script"] in out  # printed for review
     assert "FAILED" in out and "Business" in out and "slow down" in out
     assert re.search(r"narrated this run:\s+1\b", out) and re.search(r"failed this run:\s+1\b", out)

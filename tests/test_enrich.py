@@ -382,7 +382,7 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(c
     code = run_command(fake)
     out = capsys.readouterr().out
 
-    assert code == 1  # something failed
+    assert code == 0  # a retryable per-article failure is not a stage failure
     assert "Model: fake-model" in out and f"prompt_version: {enrich.PROMPT_VERSION}" in out
     assert "1 article(s) already enriched; 2 waiting; 1 without a ready body" in out
     assert shows(out, r"\bok\s+Research\s+Src\s+Good one")

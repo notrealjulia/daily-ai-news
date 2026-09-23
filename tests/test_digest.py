@@ -226,3 +226,27 @@ def test_digest_command_reports_and_refuses_an_incomplete_run(monkeypatch, tmp_p
     assert command() == 1
     out = capsys.readouterr().out
     assert "Refusing to write digests: 1 of 1 stories" in out and "python -m ainews cluster" in out
+
+
+def test_digest_command_still_succeeds_when_one_categorys_digest_fails(monkeypatch, tmp_path, capsys):
+    # Unlike refusing to run at all (above), a single category's failed digest call is
+    # retryable and must not make the command exit non-zero.
+    db_path = tmp_path / "t.db"
+    conn = db.connect(db_path)
+    make_run(conn, ("Research", "A story.", 1, "ready"), ("Business", "B story.", 1, "ready"))
+    conn.close()
+
+    def respond(category, input_text):
+        if category == "Business":
+            raise llm.LLMError("RateLimitError (HTTP 429): slow down")
+        return {"headline": "H", "summary": "Digest of Research."}
+
+    fake = FakeLLM(respond)
+    monkeypatch.setattr(llm, "create", lambda model: fake)
+
+    code = main(["digest", "--db", str(db_path)])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "FAILED" in out and "Business" in out and "slow down" in out
+    assert shows(out, r"digests written this run:\s+1\b") and shows(out, r"failed this run:\s+1\b")

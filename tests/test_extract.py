@@ -337,7 +337,7 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(
     code = main(["extract", "--feeds", str(feeds_path), "--db", str(db_path)])
     out = capsys.readouterr().out
 
-    assert code == 1  # something failed
+    assert code == 0  # a retryable per-article failure is not a stage failure
     assert "1 article(s) already complete; 3 waiting (3 new, 0 retrying" in out
     assert shows(out, r"\bok\s+fulltext\s+Site\s+Good article")
     assert shows(out, r"FAILED\s+fulltext\s+Site\s+Blocked article.*Cloudflare")
@@ -354,6 +354,17 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(
     assert code == 0
     assert "3 article(s) already complete; 1 waiting (0 new, 1 retrying after an earlier failure)" in out
     assert "ok*" in out and "[* 1 recovered from an earlier failure]" in out
-    assert shows(out, r"failed this run:\s+0\b") and "Retryable failures" not in out
+
+
+def test_the_command_still_fails_for_a_genuine_configuration_problem(tmp_path):
+    # Unlike a retryable per-article failure, this must not be swallowed into a "ran
+    # fine" exit code: feeds.toml itself is broken, so nothing could be extracted at
+    # all. main() doesn't catch this, so it propagates - which is how a real process
+    # ends up exiting non-zero for a genuine stage failure.
+    bad_feeds = tmp_path / "feeds.toml"
+    bad_feeds.write_text('[[feeds]]\nname = "A"\nurl = "https://a"\n', encoding="utf-8")  # no strategy
+
+    with pytest.raises(ValueError, match="missing 'strategy'"):
+        main(["extract", "--feeds", str(bad_feeds), "--db", str(tmp_path / "t.db")])
 
 

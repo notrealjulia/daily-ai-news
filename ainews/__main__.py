@@ -40,7 +40,11 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     print(f"\n{'TOTAL':<{width}}  {_format_stats(total)}")
     if failures:
         print(f"\n{failures} feed(s) failed.")
-    return 1 if failures else 0
+    # A feed that isn't a valid RSS/Atom feed is reported above and does not stop the
+    # others (see README); it must not stop the rest of the pipeline either. A genuine
+    # stage failure (a config or database problem) exits non-zero via Python's normal
+    # uncaught-exception handling, before this point is ever reached.
+    return 0
 
 
 def cmd_inspect_feed(args: argparse.Namespace) -> int:
@@ -88,7 +92,12 @@ def cmd_extract(args: argparse.Namespace) -> int:
     print()
     for line in _format_extraction_summary(summary):
         print(line)
-    return 1 if summary.failed else 0
+    # A retryable per-article failure (reported above, and retried on the next run) must
+    # not stop the rest of the pipeline. Only a genuine stage failure - a config or
+    # database problem, or an unexpected exception escaping run_extraction itself, before
+    # this point is ever reached - exits non-zero, via Python's normal uncaught-exception
+    # handling; run_extraction never raises for a single article's sake.
+    return 0
 
 
 def _format_outcome(o: "extract.Outcome", width: int) -> str:
@@ -159,7 +168,12 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     print()
     for line in _format_enrichment_summary(summary):
         print(line)
-    return 1 if summary.failed else 0
+    # A retryable per-article failure (reported above, and retried on the next run) must
+    # not stop the rest of the pipeline. A genuine stage failure - a config or database
+    # problem, or an unexpected exception escaping run_enrichment itself - exits
+    # non-zero via Python's normal uncaught-exception handling; run_enrichment never
+    # raises for a single article's sake.
+    return 0
 
 
 def _positive_int(text: str) -> int:
@@ -235,7 +249,12 @@ def cmd_cluster(args: argparse.Namespace) -> int:
     print()
     for line in _format_clustering_summary(conn, summary):
         print(line)
-    return 1 if summary.grouping_error or summary.failed else 0
+    # summary.failed is a retryable per-story combined-summary failure (reported above,
+    # retried without regrouping) and must not stop the rest of the pipeline.
+    # summary.grouping_error is different: the one call that groups the whole window
+    # failed, so nothing was clustered at all this run - that is a genuine stage
+    # failure, and still exits non-zero.
+    return 1 if summary.grouping_error else 0
 
 
 def _format_story_outcome(o: "stories.StoryOutcome") -> str:
@@ -341,7 +360,13 @@ def cmd_digest(args: argparse.Namespace) -> int:
     print()
     for line in _format_digest_summary(summary):
         print(line)
-    return 1 if summary.failed else 0
+    # A retryable per-category digest failure (reported above, and retried on the next
+    # run) must not stop the rest of the pipeline. A genuine stage failure - a config or
+    # database problem, or an unexpected exception escaping run_digests itself - exits
+    # non-zero via Python's normal uncaught-exception handling; run_digests never raises
+    # for a single category's sake. (Refusing to run at all, above, still returns 1: an
+    # incomplete story run is a whole-stage precondition, not an isolated failure.)
+    return 0
 
 
 def cmd_narrate(args: argparse.Namespace) -> int:
@@ -368,7 +393,14 @@ def cmd_narrate(args: argparse.Namespace) -> int:
     print()
     for line in _format_narration_summary(summary):
         print(line)
-    return 1 if summary.failed else 0
+    # A retryable per-category narration failure (reported above) must not stop the
+    # rest of the pipeline. A genuine stage failure - a config or database problem, or
+    # an unexpected exception escaping narrate_all_categories itself - exits non-zero
+    # via Python's normal uncaught-exception handling; one category's trouble is
+    # already isolated inside narrate_all_categories. (No fully processed run at all,
+    # above, still returns 1: that's a whole-stage precondition, not an isolated
+    # failure.)
+    return 0
 
 
 def _format_narration_outcome(o: "narrate.NarrationOutcome") -> str:

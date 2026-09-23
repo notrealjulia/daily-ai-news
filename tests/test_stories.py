@@ -276,7 +276,7 @@ def test_cluster_command_reports_the_run_and_retries_failed_summaries(monkeypatc
 
     code = command(FakeLLM(groups=groups, combine=llm.LLMError("RateLimitError (HTTP 429): slow down")))
     out = capsys.readouterr().out
-    assert code == 1  # a summary failed
+    assert code == 0  # a retryable per-story summary failure is not a stage failure
     assert "Grouped because: Both report the AI Force announcement." in out
     assert shows(out, r"excluded as Spam:\s+1\b")
     assert shows(out, r"clustered:\s+3 articles into 2 stories \(1 with several articles\)")
@@ -288,6 +288,23 @@ def test_cluster_command_reports_the_run_and_retries_failed_summaries(monkeypatc
     assert "already existed, so not regrouped" in out
     assert shows(out, r"combined summaries:\s+ok 1, failed 0")
     assert "Summary: One combined summary." in out
+
+
+def test_cluster_command_still_fails_when_the_grouping_call_itself_fails(monkeypatch, tmp_path, capsys):
+    # Unlike a per-story summary failure, this means nothing was clustered at all this
+    # run - a genuine stage failure, not an isolated one, so it must still exit non-zero.
+    db_path = tmp_path / "t.db"
+    conn = db.connect(db_path)
+    recent = datetime.now(UTC) - timedelta(hours=1)
+    add(conn, "An article", published=recent, model=llm.DEFAULT_MODEL, prompt=enrich.PROMPT_VERSION)
+    conn.close()
+    fake = FakeLLM(groups=llm.LLMError("RateLimitError (HTTP 429): slow down"))
+    monkeypatch.setattr(llm, "create", lambda model: fake)
+
+    code = main(["cluster", "--db", str(db_path)])
+
+    assert code == 1
+    assert "Grouping failed" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("command", ["cluster", "digest"])
