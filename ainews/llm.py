@@ -1,4 +1,5 @@
-"""The only module that knows which LLM provider we use (currently OpenAI).
+"""The only module that knows which provider backs each capability: OpenAI for
+structured generation, ElevenLabs for text-to-speech.
 
 Everything else talks to one of two small interfaces below. `StructuredLLM`: give it
 instructions, an input and a JSON schema, get back a dict that matches the schema.
@@ -7,8 +8,10 @@ another class with the same methods here.
 
 The OpenAI implementation uses the Responses API with Structured Outputs
 (`text.format` of type `json_schema`, `strict: true`), which OpenAI's current
-documentation recommends for structured output, and the Audio API (`audio.speech`)
-for text-to-speech.
+documentation recommends for structured output. The ElevenLabs implementation uses
+its text-to-speech `convert` endpoint with no `voice_settings` override, i.e. the
+voice's own account-configured settings. The previous OpenAI-based TTS implementation
+is kept for reference in Deprecated/openai_tts.py; nothing here imports it.
 """
 
 import json
@@ -16,8 +19,11 @@ import os
 from pathlib import Path
 from typing import Protocol
 
+import httpx
 import openai
 from dotenv import dotenv_values
+from elevenlabs.client import ElevenLabs
+from elevenlabs.core.api_error import ApiError as ElevenLabsApiError
 
 from ainews.defaults import DEFAULT_MODEL
 
@@ -30,12 +36,17 @@ DEFAULT_REASONING_EFFORT = "low"
 DEFAULT_MAX_OUTPUT_TOKENS = 8000
 REQUEST_TIMEOUT_SECONDS = 90
 
-# Text-to-speech defaults (ainews.narrate is the only current caller).
-DEFAULT_TTS_MODEL = "gpt-4o-mini-tts"
-DEFAULT_TTS_VOICE = "alloy"
+# Text-to-speech defaults (ainews.narrate is the only current caller). This voice/model
+# pairing, with no voice_settings override (the voice's own account-configured
+# settings), was chosen after comparing voice-setting variants and approved for
+# production use.
+DEFAULT_TTS_MODEL = "eleven_multilingual_v2"
+DEFAULT_TTS_VOICE = "1KW5b0DZhKA18MyNj4Kb"
+TTS_OUTPUT_FORMAT = "mp3_44100_128"
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 API_KEY_VARIABLE = "OPENAI_API_KEY"
+ELEVENLABS_API_KEY_VARIABLE = "ELEVENLABS_API_KEY"
 
 
 class LLMError(Exception):
@@ -155,38 +166,42 @@ class OpenAIStructuredLLM:
         return message.replace(self._secret, "***") if self._secret else message
 
 
-class OpenAITextToSpeech:
+class ElevenLabsTextToSpeech:
     def __init__(
         self,
         model: str = DEFAULT_TTS_MODEL,
         voice: str = DEFAULT_TTS_VOICE,
         *,
         api_key: str | None = None,
-        client: openai.OpenAI | None = None,
+        client: ElevenLabs | None = None,
     ) -> None:
         """`client` lets tests supply an SDK client wired to a fake transport."""
         self.model = model
         self.voice = voice
         self._secret = api_key
         if client is None:
-            api_key = api_key or os.environ.get(API_KEY_VARIABLE)
+            api_key = api_key or os.environ.get(ELEVENLABS_API_KEY_VARIABLE)
             if not api_key:
                 raise LLMConfigError(
-                    f"{API_KEY_VARIABLE} is not set. Put it in the .env file in the project "
-                    "folder (see .env.example) or set it in the environment."
+                    f"{ELEVENLABS_API_KEY_VARIABLE} is not set. Put it in the .env file in the "
+                    "project folder (see .env.example) or set it in the environment."
                 )
             self._secret = api_key
-            client = openai.OpenAI(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
+            client = ElevenLabs(api_key=api_key, timeout=REQUEST_TIMEOUT_SECONDS)
         self._client = client
 
     def synthesize(self, text: str) -> bytes:
         try:
-            response = self._client.audio.speech.create(
-                model=self.model, voice=self.voice, input=text, response_format="mp3"
+            chunks = self._client.text_to_speech.convert(
+                self.voice,
+                text=text,
+                model_id=self.model,
+                output_format=TTS_OUTPUT_FORMAT,
+                voice_settings=None,  # the voice's own account-configured settings
             )
-        except openai.APIError as e:  # connection, timeout and HTTP status errors alike
-            raise LLMError(self._redact(_describe_api_error(e))) from e
-        return response.content
+            return b"".join(chunks)
+        except (ElevenLabsApiError, httpx.HTTPError) as e:  # API errors and connection/timeout alike
+            raise LLMError(self._redact(_describe_elevenlabs_error(e))) from e
 
     def _redact(self, message: str) -> str:
         """Never let the API key leak into an error message we print."""
@@ -197,6 +212,12 @@ def _describe_api_error(e: openai.APIError) -> str:
     if isinstance(e, openai.APIStatusError):
         return f"{type(e).__name__} (HTTP {e.status_code}): {e.message}"
     return f"{type(e).__name__}: {e.message}"
+
+
+def _describe_elevenlabs_error(e: Exception) -> str:
+    if isinstance(e, ElevenLabsApiError):
+        return f"{type(e).__name__} (HTTP {e.status_code}): {e.body}"
+    return f"{type(e).__name__}: {e}"
 
 
 def create(model: str = DEFAULT_MODEL) -> OpenAIStructuredLLM:
@@ -210,7 +231,11 @@ def create(model: str = DEFAULT_MODEL) -> OpenAIStructuredLLM:
     return OpenAIStructuredLLM(model, api_key=api_key)
 
 
-def create_tts(model: str = DEFAULT_TTS_MODEL, voice: str = DEFAULT_TTS_VOICE) -> OpenAITextToSpeech:
-    """Build the text-to-speech provider the narrate command uses. Same key lookup as create()."""
-    api_key = os.environ.get(API_KEY_VARIABLE) or dotenv_values(ENV_PATH).get(API_KEY_VARIABLE)
-    return OpenAITextToSpeech(model, voice, api_key=api_key)
+def create_tts(model: str = DEFAULT_TTS_MODEL, voice: str = DEFAULT_TTS_VOICE) -> ElevenLabsTextToSpeech:
+    """Build the text-to-speech provider the narrate command uses.
+
+    The key comes from the environment, or failing that from the .env file, same as
+    create() but under ELEVENLABS_API_KEY.
+    """
+    api_key = os.environ.get(ELEVENLABS_API_KEY_VARIABLE) or dotenv_values(ENV_PATH).get(ELEVENLABS_API_KEY_VARIABLE)
+    return ElevenLabsTextToSpeech(model, voice, api_key=api_key)
