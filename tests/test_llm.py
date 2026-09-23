@@ -1,15 +1,14 @@
-"""Tests for the provider adapters in ainews.llm.
+"""Tests for the OpenAI adapter in ainews.llm.
 
-These use the real OpenAI and ElevenLabs SDKs, wired to a fake HTTP transport. So the
-request that is checked is exactly what the SDK would put on the wire, and responses
-go through the SDK's real parsing. No network is involved and no real key is used.
+These use the real OpenAI SDK, wired to a fake HTTP transport. So the request that is
+checked is exactly what the SDK would put on the wire, and responses go through the
+SDK's real parsing. No network is involved and no real key is used.
 """
 
 import json
 
 import openai
 import pytest
-from elevenlabs.client import ElevenLabs
 
 from ainews import llm
 
@@ -17,8 +16,6 @@ try:  # openai 3.x is built on httpx2 (the same library under a new name); 2.x u
     import httpx2 as httpx
 except ImportError:
     import httpx
-
-import httpx as elevenlabs_httpx  # the ElevenLabs SDK always uses real httpx, unlike openai above
 
 KEY = "sk-test-key-for-the-fake-transport"
 SCHEMA = {
@@ -213,74 +210,53 @@ def test_the_environment_takes_precedence_over_the_env_file(monkeypatch, tmp_pat
 # --- text to speech (ainews.narrate) ------------------------------------------
 
 
-def make_tts(handler, **kwargs) -> llm.ElevenLabsTextToSpeech:
-    client = ElevenLabs(
+def make_tts(handler, **kwargs) -> llm.OpenAITextToSpeech:
+    client = openai.OpenAI(
         api_key=KEY,
-        httpx_client=elevenlabs_httpx.Client(transport=elevenlabs_httpx.MockTransport(handler)),
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        max_retries=0,
     )
-    return llm.ElevenLabsTextToSpeech("some-tts-model", "some-voice-id", api_key=KEY, client=client, **kwargs)
+    return llm.OpenAITextToSpeech("some-tts-model", "some-voice", api_key=KEY, client=client, **kwargs)
 
 
 def test_the_tts_request_and_the_returned_audio_bytes():
     seen = {}
 
-    def handler(request: elevenlabs_httpx.Request) -> elevenlabs_httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
         seen["path"], seen["method"] = request.url.path, request.method
-        seen["auth"] = request.headers["xi-api-key"]
-        seen["params"] = dict(request.url.params)
+        seen["auth"] = request.headers["authorization"]
         seen["body"] = json.loads(request.content)
-        return elevenlabs_httpx.Response(200, content=b"fake-mp3-bytes")
+        return httpx.Response(200, content=b"fake-mp3-bytes")
 
     audio = make_tts(handler).synthesize("Read this aloud.")
 
     assert audio == b"fake-mp3-bytes"
-    assert (seen["method"], seen["path"]) == ("POST", "/v1/text-to-speech/some-voice-id")
-    assert seen["auth"] == KEY
-    assert seen["params"]["output_format"] == llm.TTS_OUTPUT_FORMAT
+    assert (seen["method"], seen["path"]) == ("POST", "/v1/audio/speech")
+    assert seen["auth"] == f"Bearer {KEY}"
     body = seen["body"]
-    assert (body["model_id"], body["text"]) == ("some-tts-model", "Read this aloud.")
-    # No voice_settings override: uses the voice's own account-configured settings.
-    assert body["voice_settings"] is None
+    assert (body["model"], body["voice"], body["input"]) == ("some-tts-model", "some-voice", "Read this aloud.")
+    assert body["response_format"] == "mp3"
 
 
 def test_tts_defaults_are_the_documented_model_and_voice():
-    assert (llm.DEFAULT_TTS_MODEL, llm.DEFAULT_TTS_VOICE) == ("eleven_multilingual_v2", "1KW5b0DZhKA18MyNj4Kb")
+    assert (llm.DEFAULT_TTS_MODEL, llm.DEFAULT_TTS_VOICE) == ("gpt-4o-mini-tts", "alloy")
 
 
 def test_tts_http_errors_become_llm_errors():
-    def handler(request: elevenlabs_httpx.Request) -> elevenlabs_httpx.Response:
-        return elevenlabs_httpx.Response(429, json={"detail": {"message": "the server said no"}})
+    payload = {"error": {"message": "the server said no", "type": "x", "code": None}}
 
-    with pytest.raises(llm.LLMError, match="429"):
-        make_tts(handler).synthesize("text")
-
-
-def test_tts_connection_failures_become_llm_errors():
-    def unreachable(request):
-        raise elevenlabs_httpx.ConnectError("no route to host")
-
-    with pytest.raises(llm.LLMError, match="ConnectError"):
-        make_tts(unreachable).synthesize("text")
-
-
-def test_the_tts_api_key_never_appears_in_an_error_message():
-    def handler(request: elevenlabs_httpx.Request) -> elevenlabs_httpx.Response:
-        return elevenlabs_httpx.Response(401, json={"detail": f"Incorrect API key provided: {KEY}"})
-
-    with pytest.raises(llm.LLMError) as caught:
-        make_tts(handler).synthesize("text")
-
-    assert KEY not in str(caught.value) and "***" in str(caught.value)
+    with pytest.raises(llm.LLMError, match="the server said no"):
+        make_tts(answering(payload, status_code=429)).synthesize("text")
 
 
 def test_creating_tts_without_any_key_explains_what_to_do(monkeypatch):
-    monkeypatch.delenv("ELEVENLABS_API_KEY")
+    monkeypatch.delenv("OPENAI_API_KEY")
 
-    with pytest.raises(llm.LLMConfigError, match=r"ELEVENLABS_API_KEY is not set.*\.env"):
+    with pytest.raises(llm.LLMConfigError, match=r"OPENAI_API_KEY is not set.*\.env"):
         llm.create_tts()
 
 
-def test_only_llm_py_talks_to_the_provider_sdks():
+def test_only_llm_py_talks_to_the_openai_sdk():
     # The provider boundary: swapping providers must only ever mean editing llm.py.
     # Read the code as code (not text), so no way of writing an import can slip past.
     import ast
@@ -298,7 +274,7 @@ def test_only_llm_py_talks_to_the_provider_sdks():
         path.name
         for path in package.glob("*.py")
         if path.name != "llm.py"
-        and any(module.split(".")[0] in ("openai", "elevenlabs") for module in imported_modules(path))
+        and any(module.split(".")[0] == "openai" for module in imported_modules(path))
     ]
     assert offenders == []
 
