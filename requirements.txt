@@ -1,0 +1,19 @@
+# For Streamlit Community Cloud only. This project's real dependency source of truth is
+# pyproject.toml's [project.dependencies] - local dev and GitHub Actions both install via
+# `pip install -e .`, never this file. This file exists solely because Streamlit
+# Community Cloud treats any pyproject.toml as a Poetry project (this one has no
+# [tool.poetry] section and never has - it's plain PEP 621 + setuptools), which broke
+# deployment ("pyproject.toml changed significantly since poetry.lock was last
+# generated"). A requirements.txt makes Streamlit Cloud install with pip/uv instead.
+#
+# Keep this in sync by hand with pyproject.toml's [project.dependencies] whenever that
+# list changes; dev-only dependencies ([project.optional-dependencies].dev: pytest, ruff)
+# are deliberately not included here, since the deployed app never needs them.
+feedparser>=6.0
+openai>=3.0  # developed and tested against 3.16
+python-dotenv>=1.0
+streamlit>=1.40
+trafilatura>=2.0
+turso_serverless>=0.1  # hosted database, only used when AINEWS_BACKEND=turso
+lxml_html_clean>=0.4  # Trafilatura's justext needs it now that lxml split it out
+elevenlabs>=2.68,<3.0  # production text-to-speech (ainews.llm.ElevenLabsTextToSpeech)
