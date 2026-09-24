@@ -39,6 +39,11 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Install ffmpeg
+        # Not preinstalled on ubuntu-latest (confirmed against the runner image's own
+        # software manifest). Required for narrate's loudness normalization step.
+        run: sudo apt-get update -y && sudo apt-get install -y ffmpeg
+
       - name: Install dependencies
         run: pip install -e .
 

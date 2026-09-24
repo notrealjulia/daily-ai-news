@@ -2,6 +2,9 @@
 .venv/
 .env
 
+# Local-only working notes for Claude Code, not shared via the repo
+CLAUDE.md
+
 # Local database (SQLite also creates -wal/-shm files in WAL mode)
 *.db
 *.db-wal

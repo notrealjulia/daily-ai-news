@@ -6,6 +6,8 @@ go through the SDK's real parsing. No network is involved and no real key is use
 """
 
 import json
+import shutil
+import subprocess
 
 import openai
 import pytest
@@ -213,6 +215,41 @@ def test_the_environment_takes_precedence_over_the_env_file(monkeypatch, tmp_pat
 # --- text to speech (ainews.narrate) ------------------------------------------
 
 
+def test_split_into_chunks_only_cuts_at_sentence_boundaries():
+    text = "One. Two. Three. Four. Five. Six. Seven. Eight."
+
+    chunks = llm._split_into_chunks(text, 4)
+
+    assert len(chunks) == 4
+    for chunk in chunks:
+        assert chunk.strip().endswith(".")  # never cuts a sentence in half
+    # nothing invented, nothing dropped
+    assert " ".join(chunks).replace(" ", "") == text.replace(" ", "")
+
+
+def test_split_into_chunks_balances_roughly_evenly():
+    text = "One. Two. Three. Four. Five. Six. Seven. Eight."
+
+    chunks = llm._split_into_chunks(text, 4)
+
+    target = len(text) / 4
+    assert all(abs(len(c) - target) < target for c in chunks)
+
+
+def test_split_into_chunks_degrades_gracefully_with_fewer_sentences_than_chunks():
+    text = "Only two sentences here. Here is the second one."
+
+    chunks = llm._split_into_chunks(text, 4)
+
+    assert len(chunks) == 2  # never invents empty chunks to hit the requested count
+
+
+def test_split_into_chunks_falls_back_to_whole_text_with_no_sentence_boundaries():
+    text = "no punctuation at all just words"
+
+    assert llm._split_into_chunks(text, 4) == [text]
+
+
 def make_tts(handler, **kwargs) -> llm.ElevenLabsTextToSpeech:
     client = ElevenLabs(
         api_key=KEY,
@@ -221,26 +258,57 @@ def make_tts(handler, **kwargs) -> llm.ElevenLabsTextToSpeech:
     return llm.ElevenLabsTextToSpeech("some-tts-model", "some-voice-id", api_key=KEY, client=client, **kwargs)
 
 
-def test_the_tts_request_and_the_returned_audio_bytes():
-    seen = {}
+def fake_ffmpeg_passthrough(monkeypatch):
+    """Replace the ffmpeg-calling helpers with simple fakes that don't need ffmpeg, for
+    tests that only care about synthesize()'s chunking/request wiring. The ffmpeg
+    helpers themselves get their own dedicated (skippable) tests further down."""
+
+    def fake_measure(path):
+        return {"input_i": "-20", "input_tp": "-2", "input_lra": "5", "input_thresh": "-30", "target_offset": "1"}
+
+    def fake_normalize(src, dst, stats):
+        dst.write_bytes(src.read_bytes())  # identity: just needs to produce a file
+
+    def fake_concat(paths, dst):
+        dst.write_bytes(b"".join(p.read_bytes() for p in paths))
+
+    monkeypatch.setattr(llm, "_measure_loudness", fake_measure)
+    monkeypatch.setattr(llm, "_normalize_loudness", fake_normalize)
+    monkeypatch.setattr(llm, "_concat_mp3s", fake_concat)
+
+
+def test_the_tts_request_and_the_returned_audio_bytes(monkeypatch):
+    fake_ffmpeg_passthrough(monkeypatch)
+    seen = []
 
     def handler(request: elevenlabs_httpx.Request) -> elevenlabs_httpx.Response:
-        seen["path"], seen["method"] = request.url.path, request.method
-        seen["auth"] = request.headers["xi-api-key"]
-        seen["params"] = dict(request.url.params)
-        seen["body"] = json.loads(request.content)
-        return elevenlabs_httpx.Response(200, content=b"fake-mp3-bytes")
+        seen.append(
+            {
+                "path": request.url.path,
+                "method": request.method,
+                "auth": request.headers["xi-api-key"],
+                "params": dict(request.url.params),
+                "body": json.loads(request.content),
+            }
+        )
+        return elevenlabs_httpx.Response(200, content=f"audio-{len(seen)}".encode())
 
-    audio = make_tts(handler).synthesize("Read this aloud.")
+    text = "One thing happens. Then another thing happens. And a third thing. Finally a fourth thing."
+    audio = make_tts(handler).synthesize(text)
 
-    assert audio == b"fake-mp3-bytes"
-    assert (seen["method"], seen["path"]) == ("POST", "/v1/text-to-speech/some-voice-id")
-    assert seen["auth"] == KEY
-    assert seen["params"]["output_format"] == llm.TTS_OUTPUT_FORMAT
-    body = seen["body"]
-    assert (body["model_id"], body["text"]) == ("some-tts-model", "Read this aloud.")
-    # No voice_settings override: uses the voice's own account-configured settings.
-    assert body["voice_settings"] is None
+    assert len(seen) == 4  # split into 4 sentence-boundary chunks, one ElevenLabs call each
+    for call in seen:
+        assert (call["method"], call["path"]) == ("POST", "/v1/text-to-speech/some-voice-id")
+        assert call["auth"] == KEY
+        assert call["params"]["output_format"] == llm.TTS_OUTPUT_FORMAT
+        assert call["body"]["model_id"] == "some-tts-model"
+        # No voice_settings override: uses the voice's own account-configured settings.
+        assert call["body"]["voice_settings"] is None
+    # every chunk's text is a piece of the original - nothing invented, nothing dropped
+    rejoined = " ".join(call["body"]["text"] for call in seen)
+    assert rejoined.replace(" ", "") == text.replace(" ", "")
+    # the fake concat step joins each chunk's (fake, passed-through) audio in order
+    assert audio == b"".join(f"audio-{i}".encode() for i in range(1, 5))
 
 
 def test_tts_defaults_are_the_documented_model_and_voice():
@@ -278,6 +346,55 @@ def test_creating_tts_without_any_key_explains_what_to_do(monkeypatch):
 
     with pytest.raises(llm.LLMConfigError, match=r"ELEVENLABS_API_KEY is not set.*\.env"):
         llm.create_tts()
+
+
+# --- loudness normalization (real ffmpeg, skipped if it isn't installed) -----------
+
+NO_FFMPEG = shutil.which("ffmpeg") is None
+
+
+@pytest.fixture(scope="module")
+def tone_mp3_path(tmp_path_factory):
+    """A tiny, genuinely decodable MP3 with real (if quiet) signal - loudnorm needs
+    actual measurable audio, not fake bytes, and rejects pure digital silence (-inf
+    LUFS is out of its accepted range)."""
+    path = tmp_path_factory.mktemp("ffmpeg-fixture") / "tone.mp3"
+    subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1",
+            "-af", "volume=0.1", "-c:a", "libmp3lame", "-b:a", "128k", str(path),
+        ],  # fmt: skip
+        check=True,
+    )
+    return path
+
+
+@pytest.mark.skipif(NO_FFMPEG, reason="ffmpeg not installed")
+def test_measure_loudness_returns_the_expected_stats(tone_mp3_path):
+    stats = llm._measure_loudness(tone_mp3_path)
+
+    assert {"input_i", "input_tp", "input_lra", "input_thresh", "target_offset"} <= stats.keys()
+
+
+@pytest.mark.skipif(NO_FFMPEG, reason="ffmpeg not installed")
+def test_normalize_loudness_produces_a_file(tmp_path, tone_mp3_path):
+    stats = llm._measure_loudness(tone_mp3_path)
+    out = tmp_path / "normalized.mp3"
+
+    llm._normalize_loudness(tone_mp3_path, out, stats)
+
+    assert out.exists() and out.stat().st_size > 0
+
+
+@pytest.mark.skipif(NO_FFMPEG, reason="ffmpeg not installed")
+def test_concat_mp3s_combines_files_in_order(tmp_path, tone_mp3_path):
+    out = tmp_path / "combined.mp3"
+
+    llm._concat_mp3s([tone_mp3_path, tone_mp3_path], out)
+
+    assert out.exists()
+    assert out.stat().st_size > tone_mp3_path.stat().st_size  # roughly double the one input
 
 
 def test_only_llm_py_talks_to_the_provider_sdks():

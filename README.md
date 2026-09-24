@@ -33,7 +33,7 @@ flowchart LR
 - **Only three stages use an LLM** (`enrich`, `cluster`, `digest`). `ingest`, `extract` and `inspect-feed` are deterministic.
 - **Results are versioned, not overwritten.** LLM output is keyed by model and prompt version, so a new prompt adds rows next to the old ones. A stage skips work it has already done.
 - **Failures are isolated and retryable.** One failing article, story or category never stops the others, and failed work is retried on the next run, as long as it is still within the 24h window. There is no backoff, attempt limit or queue, and nothing is retried forever: once an article ages out of the window it is simply left as it is.
-- **Provider isolation.** Only `ainews/llm.py` imports the OpenAI SDK (a test enforces this); the stages talk to a small `StructuredLLM` interface.
+- **Provider isolation.** Only `ainews/llm.py` imports a provider SDK - OpenAI for structured generation, ElevenLabs for text-to-speech (a test enforces this); the stages talk to two small interfaces, `StructuredLLM` and `TextToSpeech`.
 - **The dashboard is read-only by construction.** It opens SQLite through a read-only connection, and importing its code loads no pipeline or LLM module, so it cannot run a stage or call OpenAI (tests enforce both).
 
 ## Pipeline in detail
@@ -75,7 +75,7 @@ flowchart LR
 | `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
-| `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (`gpt-4o-mini-tts`, `alloy`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
+| `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (ElevenLabs, voice `1KW5b0DZhKA18MyNj4Kb`, model `eleven_multilingual_v2`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
 | `streamlit run app.py` | the newest fully processed story run, its digests, and its articles' URLs | displays them; runs nothing | nothing (read-only connection) | no |
 
 ## Stage details
@@ -92,7 +92,7 @@ flowchart LR
 
 **dashboard** (`app.py`, `dashboard.py`). A read-only page: a header (last updated in local time, the 24h window, story and article counts) and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, and a collapsed "View N stories" list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `app.py` is a thin renderer with no SQL, pipeline or OpenAI code; `dashboard.py` builds what it shows from queries in `db.py`.
 
-**narrate** (`narrate.py`). Every non-Spam category that has stories today gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to OpenAI TTS (`gpt-4o-mini-tts`, voice `alloy`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no stories is skipped; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
+**narrate** (`narrate.py`). Every non-Spam category that has stories today gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to ElevenLabs (model `eleven_multilingual_v2`, voice `1KW5b0DZhKA18MyNj4Kb`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no stories is skipped; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
 
 **inspect-feed** (`inspect_feed.py`). Onboarding aid for a new feed. It reuses the same fetching and extraction code as `extract`, so it evaluates what the pipeline would actually do, and it leaves choosing a strategy (and editing `feeds.toml`) to you.
 
@@ -127,18 +127,18 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 ## Configuration
 
 - **`feeds.toml`**: one `[[feeds]]` table per source, with `name`, `url`, `strategy` (`feed_content` or `fulltext`, required) and optional `stop_markers` and `request_delay_seconds` (both `fulltext` only; OpenAI waits 1 second between page requests, because its pages intermittently return a Cloudflare 403). Feeds whose own text is complete, such as Simon Willison's, use `feed_content`; the rest use `fulltext`.
-- **`.env`**: `OPENAI_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
+- **`.env`**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso the dashboard is read-only because of its token, so give it a read-only token. The two databases are independent; nothing syncs them.
 - **`.streamlit/config.toml`**: dashboard settings: telemetry off, minimal toolbar, no first-run email prompt, it listens on `localhost` only, and the compact typography (base font and heading sizes) is set here rather than in CSS.
 - **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v4`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
-Requires Python 3.12+.
+Requires Python 3.12+ and `ffmpeg` on `PATH` (narrate's loudness normalization step).
 
 ```
 pip install -e ".[dev]"
-cp .env.example .env                 # then add your OpenAI API key
+cp .env.example .env                 # then add your OpenAI and ElevenLabs API keys
 
 python -m ainews ingest
 python -m ainews extract
@@ -157,9 +157,9 @@ pytest                                                 # offline; uses fakes, ne
 
 GitHub Actions (`.github/workflows/main.yml`) runs the whole pipeline daily against the
 hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, digest,
-then narrate. The narrate step uses `continue-on-error: true`, since one category's
-script or TTS failure must not stop the rest, or skip committing the categories that
-*did* succeed.
+then narrate. No `continue-on-error` is needed for narrate: an isolated per-category
+script or TTS failure already exits `0` and is reported, rather than stopping the rest
+of the job or skipping the commit of the categories that *did* succeed.
 
 The last step commits and pushes only `audio/*.mp3` (never `git add -A`) to the repo, as
 the `github-actions[bot]` identity, using the workflow's own `GITHUB_TOKEN` (needs
@@ -170,6 +170,11 @@ pull` of the whole repo: the newly committed MP3s just become files in the app's
 checkout, and `st.audio` (see `app.py`) reads them like any other file already in the
 repo, the same way it does locally. No separate storage, no upload step, no new
 Streamlit secret - the audio "deploys" simply by being committed.
+
+Streamlit Community Cloud installs dependencies from `requirements.txt` at the repo
+root, kept in sync by hand with `pyproject.toml`'s runtime dependencies (dev-only
+extras excluded). GitHub Actions and local development instead install with
+`pip install -e .` directly from `pyproject.toml`.
 
 One tradeoff worth knowing: this keeps every day's audio in git history forever, which
 grows the repo indefinitely. Not addressed here (squashing history or moving to real
@@ -186,16 +191,18 @@ ainews/
   enrich.py       category, summary and English title per article
   stories.py      story clustering
   digest.py       per-category digests
-  llm.py          the only OpenAI code (structured JSON calls and text-to-speech)
+  llm.py          the only provider code (OpenAI structured JSON calls, ElevenLabs text-to-speech)
   narrate.py      per-category stories -> briefing script -> audio/<category>.mp3
   prompts.py      every prompt's instructions and prompt version (no imports)
   inspect_feed.py onboarding tool
   dashboard.py    what the dashboard shows (no SQL, no Streamlit)
   defaults.py     default model, audio_path(category) (no imports)
 app.py            Streamlit dashboard: a thin, read-only renderer
+Deprecated/       replaced provider implementations kept for reference; nothing imports them
 audio/            narration MP3s, one per category; committed by GitHub Actions daily
 .streamlit/       dashboard settings
 feeds.toml        sources and their strategies
+requirements.txt  Streamlit Community Cloud's dependency install only (see Deployment)
 tests/            offline tests
 ```
 
