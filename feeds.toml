@@ -15,6 +15,11 @@
 #     python -m ainews inspect-feed <feed-url> --samples 3
 # It reports the evidence; the decision is yours.
 
+# =============================================================================
+# FOUNDATION MODEL LABS
+# Companies/labs training major general-purpose foundation models
+# =============================================================================
+
 [[feeds]]
 name = "OpenAI"
 url = "https://openai.com/news/rss.xml"
@@ -22,6 +27,12 @@ url = "https://openai.com/news/rss.xml"
 strategy = "fulltext"
 # Pause between consecutive OpenAI page requests, to reduce those 403s.
 request_delay_seconds = 1
+
+[[feeds]]
+name = "Anthropic"
+url = "https://raw.githubusercontent.com/taobojlen/anthropic-rss-feed/main/anthropic_news_rss.xml"
+# Unofficial RSS feed used for discovery; it contains only short titles/summaries, so full article text is extracted from Anthropic.
+strategy = "fulltext"
 
 [[feeds]]
 name = "Google DeepMind"
@@ -40,6 +51,29 @@ name = "Microsoft Research"
 url = "https://www.microsoft.com/en-us/research/feed"
 # The feed contains substantial full article content, exceeding the extracted webpage text.
 strategy = "feed_content"
+
+[[feeds]]
+name = "Hugging Face"
+url = "https://huggingface.co/blog/feed.xml"
+# The feed carries no text at all. Extraction can drop an article's first sentence.
+strategy = "fulltext"
+
+[[feeds]]
+name = "Mistral"
+url = "https://mistral.ai/news/rss"
+# Feed text is a one-sentence teaser, and most entries have none.
+strategy = "fulltext"
+
+[[feeds]]
+name = "Qwen"
+url = "https://qwenlm.github.io/blog/index.xml"
+# The feed contains short summaries; full article pages contain substantially more content.
+strategy = "fulltext"
+
+# =============================================================================
+# TECH REPORTING
+# Publications covering AI, technology, research, and the AI industry
+# =============================================================================
 
 [[feeds]]
 name = "Ars Technica AI"
@@ -72,18 +106,6 @@ url = "https://www.fw.media/feed"
 strategy = "fulltext"
 
 [[feeds]]
-name = "Hugging Face"
-url = "https://huggingface.co/blog/feed.xml"
-# The feed carries no text at all. Extraction can drop an article's first sentence.
-strategy = "fulltext"
-
-[[feeds]]
-name = "Mistral"
-url = "https://mistral.ai/news/rss"
-# Feed text is a one-sentence teaser, and most entries have none.
-strategy = "fulltext"
-
-[[feeds]]
 name = "The Decoder"
 url = "https://the-decoder.com/feed/"
 strategy = "fulltext"
@@ -91,13 +113,31 @@ strategy = "fulltext"
 stop_markers = ["AI News Without the Hype – Curated by Humans"]
 
 [[feeds]]
+name = "TechCrunch AI"
+url = "https://techcrunch.com/category/artificial-intelligence/feed/"
+# The feed text is a teaser of about 100 characters.
+strategy = "fulltext"
+
+[[feeds]]
+name = "404 Media"
+url = "https://www.404media.co/rss/"
+# The RSS feed carries full article text when publicly available.
+strategy = "feed_content"
+
+# =============================================================================
+# INDEPENDENT JOURNALISTS & ANALYSTS
+# Individual writers providing reporting, analysis, and commentary on AI
+# =============================================================================
+
+[[feeds]]
 name = "Simon Willison"
 url = "https://simonwillison.net/atom/everything/"
 # The feed already contains the whole post; the page only adds a date and a sidebar.
 strategy = "feed_content"
 
-[[feeds]]
-name = "TechCrunch AI"
-url = "https://techcrunch.com/category/artificial-intelligence/feed/"
-# The feed text is a teaser of about 100 characters.
-strategy = "fulltext"
+[[feeds]] 
+name = "Ed Zitron" 
+url = "https://www.wheresyoured.at/rss/"
+# The RSS feed contains the full article text.
+strategy = "feed_content"
+
