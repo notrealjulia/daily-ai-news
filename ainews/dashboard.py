@@ -20,10 +20,17 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from urllib.parse import quote, urlparse
+from zoneinfo import ZoneInfo
 
 from ainews import db
 from ainews.defaults import DEFAULT_MODEL, audio_path
 from ainews.prompts import DIGEST_PROMPT_VERSION
+
+# "Last updated" is always shown in this timezone, not the server's own: the previous
+# default (astimezone(None), the machine's local time) silently showed UTC on Streamlit
+# Community Cloud, whose containers run in UTC regardless of who's reading the page. A
+# real ZoneInfo (not a fixed UTC+1/+2 offset) tracks Denmark's actual DST transitions.
+DASHBOARD_TIMEZONE = ZoneInfo("Europe/Copenhagen")
 
 # The six categories shown, in the 2-column grid's reading order (row by row).
 # Spam is deliberately absent: it is never displayed.
@@ -232,10 +239,12 @@ def category_audio_path(category: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def format_header(dashboard: Dashboard, tz: tzinfo | None = None) -> str:
+def format_header(dashboard: Dashboard, tz: tzinfo = DASHBOARD_TIMEZONE) -> str:
     """e.g. "Last updated: Sep 20, 18:00 · Last 24 hours · 8 stories from 9 articles".
 
-    The time is shown in `tz`, by default the local time of the machine running the app.
+    The time is shown in `tz`, by default DASHBOARD_TIMEZONE (Europe/Copenhagen) -
+    deliberately not the server's own local time, which is meaningless on a host like
+    Streamlit Community Cloud.
     """
     local = dashboard.last_updated.astimezone(tz)
     return (

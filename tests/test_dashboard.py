@@ -169,6 +169,31 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
     assert dashboard.empty_text(24) == "No stories in the last 24 hours."
 
 
+def test_last_updated_defaults_to_copenhagen_time_not_the_servers_own():
+    # The bug this guards against: "Last updated" must show Copenhagen local time
+    # regardless of what timezone the machine running the app is in - Streamlit
+    # Community Cloud runs in UTC, so if format_header's default ever again fell back
+    # to the server's own local time (astimezone(None)), this would silently show raw
+    # UTC there, which is exactly what was reported (07:51 shown instead of 09:51).
+    summer = dashboard.Dashboard(
+        last_updated=datetime(2026, 9, 24, 7, 51, tzinfo=UTC),  # Copenhagen: UTC+2, DST
+        window_hours=24, total_stories=1, total_articles=1, categories={},
+    )
+    assert dashboard.format_header(summer) == (
+        "Last updated: Sep 24, 09:51 · Last 24 hours · 1 story from 1 article"
+    )
+
+    # A real DST-aware conversion, not a hardcoded "+2 hours": in winter Copenhagen is
+    # UTC+1, so the same 07:51 UTC must land on a different local time than in summer.
+    winter = dashboard.Dashboard(
+        last_updated=datetime(2026, 1, 15, 7, 51, tzinfo=UTC),  # Copenhagen: UTC+1, no DST
+        window_hours=24, total_stories=1, total_articles=1, categories={},
+    )
+    assert dashboard.format_header(winter) == (
+        "Last updated: Jan 15, 08:51 · Last 24 hours · 1 story from 1 article"
+    )
+
+
 def test_story_titles_are_english_and_the_source_titles_are_kept(conn):
     danish = add_article(conn, "Danske startups rejser kapital", english_title="Danish startups raise capital")
     english = add_article(conn, "OpenAI ships a model")  # already English: nothing to translate
