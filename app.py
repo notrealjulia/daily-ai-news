@@ -34,6 +34,11 @@ with page, st.container(gap="xsmall"):
         st.title("AI News", width="content")
         if data is not None:
             st.caption(dashboard.format_header(data))
+            st.caption(
+                f"debug: raw={data.last_updated!r} "
+                f"tz={dashboard.DASHBOARD_TIMEZONE!r} "
+                f"converted={data.last_updated.astimezone(dashboard.DASHBOARD_TIMEZONE)!r}"
+            )
 
     if data is None:
         st.info(
