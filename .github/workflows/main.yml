@@ -47,27 +47,72 @@ jobs:
       - name: Install dependencies
         run: pip install -e .
 
+      # Every stage below talks to the hosted Turso database over HTTP (Hrana), which
+      # holds one long-lived "stream" per command; that stream can occasionally expire
+      # or get recycled mid-run (seen in practice as "HTTP status 404: stream not
+      # found"), independent of anything the pipeline itself did wrong. Each stage is
+      # already idempotent per item/run (see README's "Reruns and failure handling"),
+      # so retrying the whole command once is safe: work already stored is skipped, not
+      # redone. One retry after a short wait, not a loop - a second failure is treated
+      # as a genuine problem, not more transient flakiness.
+
       - name: Ingest articles
-        run: python -m ainews ingest
+        run: |
+          python -m ainews ingest && exit 0
+          echo "::warning::Ingest articles failed; retrying once after 20s."
+          sleep 20
+          python -m ainews ingest && exit 0
+          echo "::error::Ingest articles failed after 2 attempts."
+          exit 1
 
       - name: Extract article content
-        run: python -m ainews extract
+        run: |
+          python -m ainews extract && exit 0
+          echo "::warning::Extract article content failed; retrying once after 20s."
+          sleep 20
+          python -m ainews extract && exit 0
+          echo "::error::Extract article content failed after 2 attempts."
+          exit 1
 
       - name: Enrich articles
-        run: python -m ainews enrich
+        run: |
+          python -m ainews enrich && exit 0
+          echo "::warning::Enrich articles failed; retrying once after 20s."
+          sleep 20
+          python -m ainews enrich && exit 0
+          echo "::error::Enrich articles failed after 2 attempts."
+          exit 1
 
       - name: Cluster stories
-        run: python -m ainews cluster
+        run: |
+          python -m ainews cluster && exit 0
+          echo "::warning::Cluster stories failed; retrying once after 20s."
+          sleep 20
+          python -m ainews cluster && exit 0
+          echo "::error::Cluster stories failed after 2 attempts."
+          exit 1
 
       - name: Generate digests
-        run: python -m ainews digest
+        run: |
+          python -m ainews digest && exit 0
+          echo "::warning::Generate digests failed; retrying once after 20s."
+          sleep 20
+          python -m ainews digest && exit 0
+          echo "::error::Generate digests failed after 2 attempts."
+          exit 1
 
       - name: Generate narration audio
-        run: python -m ainews narrate
         # No continue-on-error needed: `narrate` itself now only exits non-zero for a
         # genuine stage failure (no fully processed run, config/database problems), not
         # for one category's isolated script/TTS failure, which it already reports and
         # isolates internally.
+        run: |
+          python -m ainews narrate && exit 0
+          echo "::warning::Generate narration audio failed; retrying once after 20s."
+          sleep 20
+          python -m ainews narrate && exit 0
+          echo "::error::Generate narration audio failed after 2 attempts."
+          exit 1
 
       - name: Commit and push updated audio files
         run: |
