@@ -76,6 +76,18 @@ strategy = "fulltext"
 # =============================================================================
 
 [[feeds]]
+name = "Pivot"
+url = "https://feeds.megaphone.fm/pivot"
+# The feed provides episode descriptions directly, so no full-page extraction is needed.
+strategy = "feed_content"
+
+[[feeds]]
+name = "Hard Fork"
+url = "https://feeds.simplecast.com/l2i9YnTd"
+# The feed contains substantive episode descriptions and additional reading references; NYT pages block automated extraction.
+strategy = "feed_content"
+
+[[feeds]]
 name = "Ars Technica AI"
 url = "https://arstechnica.com/ai/feed/"
 # The feed contains article excerpts, while full-page extraction retrieves substantially more of the article content.
@@ -128,6 +140,7 @@ strategy = "feed_content"
 # INDEPENDENT JOURNALISTS & ANALYSTS
 # Individual writers providing reporting, analysis, and commentary on AI
 # =============================================================================
+
 
 [[feeds]]
 name = "Simon Willison"
