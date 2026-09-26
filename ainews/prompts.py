@@ -132,8 +132,13 @@ For the article you are given, return:
 - english_title: the article's title in English, or null if the title is already in English
 
 CATEGORIES
-Classify based on the article's main development, not on keywords it happens to contain. \
-If an article touches several categories, pick the one it is mainly about.
+First determine whether AI is a meaningful part of the article's main subject. An article \
+must be substantively about AI to receive a non-Spam category; merely mentioning an AI \
+company, product, organization or keyword is not enough. If AI is incidental to the main \
+story, classify it as Spam.
+
+Otherwise, classify based on the article's main development, not on keywords it happens \
+to contain. If an article touches several categories, pick the one it is mainly about.
 
 {_ENRICH_CATEGORY_TEXT}
 
