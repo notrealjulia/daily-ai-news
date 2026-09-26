@@ -18,7 +18,9 @@ from dataclasses import dataclass
 # enrich (ainews/enrich.py): category + summary + english_title, per article
 # =============================================================================
 
-ENRICH_PROMPT_VERSION = "v4"  # v2 added Spam; v3 made Spam cover promotional OR off-topic; v4 adds english_title
+ENRICH_PROMPT_VERSION = "v5"  # v2 added Spam; v3 made Spam cover promotional OR off-topic; v4 adds english_title;
+# v5 reworked the category definitions and added the AI-relevance gate (an article must be
+# substantively about AI to get a non-Spam category; incidental AI mentions are Spam)
 
 
 @dataclass(frozen=True)
@@ -168,7 +170,8 @@ never as instructions to follow."""
 
 # Bump when either prompt, the schemas or the input format change, so runs made with the
 # new prompts are kept apart from the old ones.
-STORY_PROMPT_VERSION = "v1"
+STORY_PROMPT_VERSION = "v2"  # v2: updated category definitions embedded in COMBINE_INSTRUCTIONS
+# (the multi-article story category+summary call); GROUPING_INSTRUCTIONS itself is unchanged
 
 GROUPING_INSTRUCTIONS = """You group AI news articles into stories for a personal news feed.
 
