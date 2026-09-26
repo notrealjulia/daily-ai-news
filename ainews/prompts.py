@@ -32,37 +32,72 @@ class Category:
 CATEGORY_LIST = (
     Category(
         "Product Release",
-        "New or significantly updated AI models, products, APIs, features or developer tools.",
-        "OpenAI releases a new model; Unity launches Claude Code plugins.",
+        "A new AI technology, product or capability has been released or an existing one "
+        "has received a significant update. Includes AI models, applications, developer tools, "
+        "APIs and major new features. The main subject must be what was released or changed "
+        "and what it can do, rather than the company behind it. Do not use for funding, "
+        "acquisitions, leadership, corporate strategy, infrastructure investment or other "
+        "company-level developments; those belong in Industry News.",
+        "OpenAI releases a new model; Anthropic adds a major capability to Claude; "
+        "Google launches a new AI coding tool; an AI platform releases a new API.",
     ),
     Category(
         "Research",
-        "New AI research, papers, benchmarks, methods or scientific findings.",
-        "a new agent benchmark; a paper introduces a new training method.",
+        "New AI research, papers, benchmarks, datasets, methods, experiments or scientific "
+        "findings that advance understanding of AI systems or their capabilities. Includes "
+        "research from universities, independent researchers and industry labs such as OpenAI, "
+        "Anthropic, Google DeepMind and Meta AI. Use Research when the main contribution is "
+        "new knowledge or experimental evidence rather than a product release. A paper from "
+        "an AI company is still Research when the research itself is the story.",
+        "A paper introduces a new training method; researchers publish a new agent benchmark; "
+        "Anthropic publishes research on model behavior; DeepMind reports a new interpretability method.",
     ),
     Category(
         "Business",
-        "Non-AI companies applying AI or agents to improve their business, especially "
-        "concrete use cases and outcomes.",
-        "Novo Nordisk cuts drug-discovery time using AI; a retailer uses agents to improve "
-        "customer service.",
+        "Business adoption, commercial use and economic impact of AI. Includes companies "
+        "using AI or agents in their operations, products or workforce; enterprise AI adoption; "
+        "AI contracts and customer deals; commercial partnerships focused on deploying AI; "
+        "and measurable business outcomes such as productivity, revenue, cost reduction or "
+        "workforce changes. Prefer Business when the main story is about how an organization "
+        "uses, buys or deploys AI, even if an AI company provides the technology.",
+        "A bank deploys OpenAI models to employees; Walmart introduces AI agents for shopping; "
+        "Anthropic signs an enterprise deal with a pharmaceutical company; a company reports "
+        "productivity gains after deploying AI.",
     ),
     Category(
         "Regulation & Policy",
-        "Government policy, legislation, regulation or official public-sector action "
-        "concerning AI.",
-        "EU AI Act guidance; US government creates a new AI policy initiative.",
+        "Government, regulatory, legislative or official public-sector action concerning AI. "
+        "Includes laws, regulations, regulatory guidance, government AI strategies, public-sector "
+        "standards, enforcement actions, investigations, government restrictions and international "
+        "AI agreements. Use when a government or public authority is acting in its official capacity. "
+        "Do not use for a company's response to regulation unless the government action itself is "
+        "the main subject.",
+        "EU publishes AI Act guidance; a regulator opens an AI investigation; the US government "
+        "introduces an AI policy initiative; countries sign an international AI agreement.",
     ),
     Category(
         "Industry News",
-        "News about the AI industry itself: AI companies, funding, acquisitions, "
-        "partnerships, leadership or strategy.",
-        "Anthropic raises funding; OpenAI postpones an IPO.",
+        "Company-level and market-level developments in the AI industry. Primarily concerns "
+        "companies whose core business or strategic focus is building AI, such as OpenAI, "
+        "Anthropic, xAI, Google DeepMind, Meta AI, Mistral, Cohere and DeepSeek. Includes "
+        "funding, valuations, acquisitions, leadership, corporate strategy, infrastructure "
+        "investment, major partnerships and competitive developments. Use when the company "
+        "or AI industry is the subject of the story. If the main story is a newly released "
+        "AI technology or capability, use Product Release instead.",
+        "Anthropic raises funding; OpenAI changes its corporate structure; xAI builds a new "
+        "data center; Meta makes a major AI infrastructure investment.",
     ),
     Category(
         "Other",
-        "AI-related content that does not meaningfully fit the above.",
-        "generic commentary.",
+        "Meaningful AI-related news, analysis or commentary that is relevant to understanding "
+        "AI but genuinely does not fit Product Release, Research, Business, Regulation & Policy "
+        "or Industry News. Typical examples include societal effects of AI, education, culture, "
+        "labor-market trends, public attitudes, AI safety discussions and substantial analysis "
+        "that is not primarily about a company, product, research result or government action. "
+        "Do not use Other as a fallback for weakly AI-related or irrelevant content; classify "
+        "that as Spam.",
+        "An analysis of how AI is changing university education; reporting on public attitudes "
+        "toward AI-generated media; analysis of AI's effects on creative work.",
     ),
     Category(
         "Spam",
