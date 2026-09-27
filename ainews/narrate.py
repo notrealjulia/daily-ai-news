@@ -21,6 +21,12 @@ MVP scope, deliberately small:
       call) leaves its existing audio file exactly as it was, and never stops the
       others: one category's trouble is isolated the same way one article's or one
       story's is elsewhere in the pipeline.
+    - After the categories, the ones narrated successfully in this run are joined (ffmpeg,
+      no further TTS) into one full briefing, defaults.BRIEFING_AUDIO_PATH, in the
+      dashboard's category order. A category that failed or had no stories this run is
+      left out even if an older file of its own is still on disk. If nothing was narrated
+      this run, or the join fails, the previous briefing file is left as it was; either
+      way the category files already written stand.
 
 This module knows nothing about any provider; see ainews.llm for that.
 """
@@ -32,8 +38,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ainews import db, enrich
-from ainews.defaults import DEFAULT_MODEL, audio_path
-from ainews.llm import LLMError, StructuredLLM, TextToSpeech
+from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path
+from ainews.llm import LLMError, StructuredLLM, TextToSpeech, concat_audio_files
 from ainews.prompts import DIGEST_PROMPT_VERSION, NARRATE_INSTRUCTIONS, NARRATE_PROMPT_VERSION
 from ainews.stories import NON_SPAM_CATEGORIES, generate_validated
 
@@ -204,6 +210,8 @@ class NarrationSummary:
     run_id: int | None  # None if there is no fully processed run to work from
     no_stories: list[str] = field(default_factory=list)  # categories with nothing to narrate
     outcomes: list[NarrationOutcome] = field(default_factory=list)
+    briefing: list[str] = field(default_factory=list)  # categories joined into the full briefing, in order
+    briefing_error: str | None = None  # why the full briefing couldn't be made, if it failed
 
     @property
     def succeeded(self) -> list[NarrationOutcome]:
@@ -226,7 +234,9 @@ def narrate_all_categories(
     its own fixed audio/<category>.mp3. One category's failure - no stories, an
     unexpected error, a failed script call or a failed TTS call - never stops the
     others; `report` is called after each attempted category, so a long run can show
-    progress."""
+    progress. Then this run's narrated categories are joined into the full briefing
+    (see the module docstring); a failure there is recorded in `briefing_error`, never
+    raised."""
     run = current_run(conn)
     if run is None:
         return NarrationSummary(run_id=None)
@@ -245,4 +255,13 @@ def narrate_all_categories(
         summary.outcomes.append(outcome)
         if report:
             report(outcome)
+
+    narrated = {o.category for o in summary.succeeded}
+    included = [category for category in CATEGORY_ORDER if category in narrated]
+    if included:
+        try:
+            concat_audio_files([audio_path(category) for category in included], BRIEFING_AUDIO_PATH)
+            summary.briefing = included
+        except Exception as e:  # the category files already stand; the briefing is extra
+            summary.briefing_error = f"{type(e).__name__}: {e}"
     return summary

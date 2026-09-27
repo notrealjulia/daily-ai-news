@@ -419,6 +419,10 @@ def _format_narration_summary(s: "narrate.NarrationSummary") -> list[str]:
         f"  failed this run:            {len(s.failed):>4}",
         f"  categories with no stories: {len(s.no_stories):>4}",
     ]
+    if s.briefing:
+        lines.append(f"  full briefing:              {', '.join(s.briefing)}")
+    elif s.briefing_error:
+        lines.append(f"  full briefing:              FAILED - {s.briefing_error} (previous file left as it was)")
     if s.failed:
         lines.append("")
         lines.append(

@@ -42,6 +42,11 @@ with page, st.container(gap="xsmall"):
         )
         st.stop()
 
+    if briefing := dashboard.briefing_audio_path():
+        st.markdown("**Listen to the entire AI briefing**")
+        st.audio(briefing, format="audio/mp3")
+        st.caption("Or scroll down to listen by category.")
+
     for row in dashboard.CATEGORY_GRID:
         for column, name in zip(st.columns(2, gap="small"), row):
             category = data.categories[name]

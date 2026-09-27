@@ -17,6 +17,15 @@ DEFAULT_MODEL = "gpt-5.6-luna"
 # be imported here or from the dashboard, since it imports the OpenAI SDK.
 AUDIO_DIR = Path("audio")
 
+# The six displayed categories in the dashboard's reading order (its 2-column grid, row
+# by row). Also the order `narrate` stitches the category audio into the full briefing,
+# so listening straight through matches reading the page top to bottom.
+CATEGORY_ORDER = ("Product Release", "Industry News", "Research", "Business", "Regulation & Policy", "Other")
+
+# The full briefing: this run's category narrations joined in CATEGORY_ORDER, rewritten
+# on every `narrate` run. Not a category name, so it can never collide with audio_path().
+BRIEFING_AUDIO_PATH = AUDIO_DIR / "briefing.mp3"
+
 
 def audio_slug(category: str) -> str:
     """Filename-safe form of a category name, e.g. "Product Release" -> "product-release"."""

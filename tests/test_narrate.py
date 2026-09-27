@@ -2,10 +2,11 @@
 
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from ainews import db, defaults, enrich, llm, narrate, prompts
+from ainews import dashboard, db, defaults, enrich, llm, narrate, prompts
 from ainews.__main__ import main
 from ainews.llm import LLMError
 
@@ -19,6 +20,21 @@ def conn():
     connection = db.connect(":memory:")
     yield connection
     connection.close()
+
+
+@pytest.fixture(autouse=True)
+def joined(monkeypatch):
+    """Stands in for ffmpeg in narrate's full-briefing step (the real join is tested in
+    test_llm.py): records each call's input paths and writes their bytes end to end."""
+    calls: list[list[Path]] = []
+
+    def fake_concat(paths, dst):
+        calls.append(list(paths))
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(b"".join(p.read_bytes() for p in paths))
+
+    monkeypatch.setattr(narrate, "concat_audio_files", fake_concat)
+    return calls
 
 
 class FakeLLM:
@@ -344,6 +360,66 @@ def test_narrate_all_categories_calls_report_once_per_attempted_category(conn, t
     assert sorted(o.category for o in seen) == ["Business", "Research"]
 
 
+
+# --- the full briefing: this run's category files joined in dashboard order ------
+
+
+def test_the_full_briefing_joins_only_this_runs_narrated_categories_in_dashboard_order(conn, tmp_path, monkeypatch, joined):
+    monkeypatch.chdir(tmp_path)
+    add_run(conn, stories={
+        "Product Release": [("P", "S.")],
+        "Research": [("R", "S.")],
+        "Business": [("B", "S.")],
+        "Industry News": [("I", "S.")],
+    })  # fmt: skip
+    (tmp_path / "audio").mkdir()
+    # Stale files from an earlier run: one for a category that fails today, one for a
+    # category with no stories today. Neither belongs in today's briefing.
+    defaults.audio_path("Product Release").write_bytes(b"old-product-release")
+    defaults.audio_path("Other").write_bytes(b"old-other")
+
+    def respond(input_text):
+        if "Category: Product Release" in input_text:
+            raise LLMError("RateLimitError (HTTP 429): slow down")
+        return dict(GOOD_SCRIPT)
+
+    summary = narrate.narrate_all_categories(conn, FakeLLM(respond), FakeTTS())
+
+    # The dashboard's order (Industry News before Research), not the pipeline's own.
+    assert summary.briefing == ["Industry News", "Research", "Business"]
+    assert joined == [[defaults.audio_path(c) for c in ("Industry News", "Research", "Business")]]
+    assert defaults.BRIEFING_AUDIO_PATH.is_file()
+    assert summary.briefing_error is None
+    assert defaults.CATEGORY_ORDER == tuple(name for row in dashboard.CATEGORY_GRID for name in row)
+
+
+def test_no_full_briefing_is_made_when_nothing_was_narrated_this_run(conn, tmp_path, monkeypatch, joined):
+    monkeypatch.chdir(tmp_path)
+    add_run(conn, stories={"Research": [("R", "S.")]})
+    (tmp_path / "audio").mkdir()
+    defaults.BRIEFING_AUDIO_PATH.write_bytes(b"yesterday's briefing")
+
+    summary = narrate.narrate_all_categories(conn, FakeLLM(lambda text: LLMError("down")), FakeTTS())
+
+    assert joined == [] and summary.briefing == [] and summary.briefing_error is None
+    assert defaults.BRIEFING_AUDIO_PATH.read_bytes() == b"yesterday's briefing"  # left as it was
+
+
+def test_a_failed_full_briefing_never_undoes_the_category_audio(conn, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    add_run(conn, stories={"Research": [("R", "S.")]})
+
+    def broken_concat(paths, dst):
+        raise LLMError("ffmpeg concatenation failed: boom")
+
+    monkeypatch.setattr(narrate, "concat_audio_files", broken_concat)
+    summary = narrate.narrate_all_categories(conn, FakeLLM(), FakeTTS())
+
+    assert [o.category for o in summary.succeeded] == ["Research"]
+    assert defaults.audio_path("Research").read_bytes() == b"fake-audio-bytes"
+    assert summary.briefing == [] and "boom" in summary.briefing_error
+
+
 # --- the command -----------------------------------------------------------
 
 
@@ -386,3 +462,5 @@ def test_narrate_command_reports_no_run_isolates_a_failure_and_writes_per_catego
     assert re.search(r"narrated this run:\s+1\b", out) and re.search(r"failed this run:\s+1\b", out)
     assert (tmp_path / "audio" / "research.mp3").read_bytes() == b"fake-audio-bytes"
     assert not (tmp_path / "audio" / "business.mp3").exists()  # failed: nothing written
+    assert (tmp_path / "audio" / "briefing.mp3").read_bytes() == b"fake-audio-bytes"  # Research alone
+    assert re.search(r"full briefing:\s+Research", out)

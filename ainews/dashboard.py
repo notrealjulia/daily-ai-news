@@ -23,7 +23,7 @@ from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 from ainews import db
-from ainews.defaults import DEFAULT_MODEL, audio_path
+from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path
 from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # "Last updated" is always shown in this timezone, not the server's own: the previous
@@ -32,14 +32,10 @@ from ainews.prompts import DIGEST_PROMPT_VERSION
 # real ZoneInfo (not a fixed UTC+1/+2 offset) tracks Denmark's actual DST transitions.
 DASHBOARD_TIMEZONE = ZoneInfo("Europe/Copenhagen")
 
-# The six categories shown, in the 2-column grid's reading order (row by row).
-# Spam is deliberately absent: it is never displayed.
-CATEGORY_GRID = (
-    ("Product Release", "Industry News"),
-    ("Research", "Business"),
-    ("Regulation & Policy", "Other"),
-)
-CATEGORY_ORDER = tuple(name for row in CATEGORY_GRID for name in row)
+# The six categories shown, as rows of the 2-column grid (reading order lives in
+# defaults.CATEGORY_ORDER, shared with narrate's full briefing). Spam is deliberately
+# absent: it is never displayed.
+CATEGORY_GRID = tuple(zip(CATEGORY_ORDER[::2], CATEGORY_ORDER[1::2]))
 
 
 @dataclass(frozen=True)
@@ -237,6 +233,13 @@ def category_audio_path(category: str) -> Path | None:
     """
     path = audio_path(category)
     return path if path.is_file() else None
+
+
+def briefing_audio_path() -> Path | None:
+    """The full briefing (every category's narration from the latest `narrate` run,
+    joined into one file by ainews.narrate), or None if it hasn't been made yet.
+    Checked for existence only; never generated here."""
+    return BRIEFING_AUDIO_PATH if BRIEFING_AUDIO_PATH.is_file() else None
 
 
 def format_header(dashboard: Dashboard, tz: tzinfo = DASHBOARD_TIMEZONE) -> str:

@@ -420,6 +420,37 @@ def test_the_streamlit_app_shows_the_research_audio_player_only_when_the_file_ex
     assert len(app.get("audio")) == 1  # exactly one player, and only Research has the file
 
 
+
+def test_briefing_audio_path_reflects_only_whether_the_file_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert dashboard.briefing_audio_path() is None  # narrate hasn't made one yet
+
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "briefing.mp3").write_bytes(b"fake-audio-bytes")
+    assert dashboard.briefing_audio_path() == Path("audio/briefing.mp3")
+
+
+def test_the_streamlit_app_shows_the_full_briefing_above_the_category_cards(tmp_path, monkeypatch):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.chdir(tmp_path)
+    conn = db.connect(tmp_path / "ainews.db")
+    add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
+    conn.close()
+    (tmp_path / "audio").mkdir()
+    (tmp_path / "audio" / "research.mp3").write_bytes(b"fake-mp3-bytes")
+    (tmp_path / "audio" / "briefing.mp3").write_bytes(b"fake-mp3-bytes")
+
+    app = AppTest.from_file(str(APP), default_timeout=30).run()
+
+    assert not app.exception
+    assert len(app.get("audio")) == 2  # the full briefing, plus Research's own player unchanged
+    assert app.markdown[0].value == "**Listen to the entire AI briefing**"  # before any card's text
+    captions = [c.value for c in app.caption]
+    assert captions.index("Or scroll down to listen by category.") == 1  # right after the header line
+    assert captions[0].startswith("Last updated:")
+
 def test_the_deployed_app_takes_its_database_settings_from_streamlit_secrets(tmp_path, monkeypatch):
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest

@@ -8,6 +8,7 @@ go through the SDK's real parsing. No network is involved and no real key is use
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import openai
 import pytest
@@ -396,6 +397,35 @@ def test_concat_mp3s_combines_files_in_order(tmp_path, tone_mp3_path):
     assert out.exists()
     assert out.stat().st_size > tone_mp3_path.stat().st_size  # roughly double the one input
 
+
+
+@pytest.mark.skipif(NO_FFMPEG, reason="ffmpeg not installed")
+def test_concat_audio_files_replaces_the_destination_and_leaves_nothing_else_behind(tmp_path, tone_mp3_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # relative input paths, as narrate passes them (audio/<category>.mp3)
+    (tmp_path / "audio").mkdir()
+    one = Path("audio") / "one.mp3"
+    one.write_bytes(tone_mp3_path.read_bytes())
+    out = Path("audio") / "briefing.mp3"
+    out.write_bytes(b"yesterday's briefing")
+
+    llm.concat_audio_files([one, one], out)
+
+    assert out.stat().st_size > tone_mp3_path.stat().st_size  # a real join, not the old file
+    assert sorted(p.name for p in (tmp_path / "audio").iterdir()) == ["briefing.mp3", "one.mp3"]
+
+
+@pytest.mark.skipif(NO_FFMPEG, reason="ffmpeg not installed")
+def test_concat_audio_files_leaves_the_previous_file_untouched_on_failure(tmp_path):
+    out = tmp_path / "briefing.mp3"
+    out.write_bytes(b"yesterday's briefing")
+    broken = tmp_path / "broken.mp3"
+    broken.write_bytes(b"not audio")
+
+    with pytest.raises(llm.LLMError, match="concatenation failed"):
+        llm.concat_audio_files([broken], out)
+
+    assert out.read_bytes() == b"yesterday's briefing"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["briefing.mp3", "broken.mp3"]  # no scratch left
 
 def test_only_llm_py_talks_to_the_provider_sdks():
     # The provider boundary: swapping providers must only ever mean editing llm.py.

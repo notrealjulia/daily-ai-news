@@ -12,7 +12,9 @@ documentation recommends for structured output. The ElevenLabs implementation us
 its text-to-speech `convert` endpoint with no `voice_settings` override, i.e. the
 voice's own account-configured settings - split into sentence-boundary chunks,
 loudness-normalized with ffmpeg and concatenated, since ElevenLabs' volume drifts down
-over a long narration (confirmed with a local A/B listening test). The previous
+over a long narration (confirmed with a local A/B listening test). The same ffmpeg
+concatenation also joins the finished category files into the full briefing
+(concat_audio_files), with no further TTS. The previous
 OpenAI-based TTS implementation is kept for reference in Deprecated/openai_tts.py;
 nothing here imports it.
 """
@@ -346,6 +348,18 @@ def _concat_mp3s(paths: list[Path], dst: Path) -> None:
     result = _run_ffmpeg(["-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(dst)])
     if result.returncode != 0:
         raise LLMError(f"ffmpeg concatenation failed: {result.stderr[-500:]}")
+
+
+def concat_audio_files(paths: list[Path], dst: Path) -> None:
+    """Join existing MP3 files, in order, into `dst` (ainews.narrate's full briefing):
+    no TTS call, just _concat_mp3s. Built in a scratch directory next to `dst` and then
+    moved into place, so a failure leaves any previous `dst` untouched and no ffmpeg
+    list file behind. Raises LLMError, or LLMConfigError if ffmpeg isn't installed."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".ainews-concat-", dir=dst.parent) as tmp:
+        combined = Path(tmp) / dst.name
+        _concat_mp3s([p.resolve() for p in paths], combined)
+        os.replace(combined, dst)
 
 
 def _describe_api_error(e: openai.APIError) -> str:
