@@ -31,7 +31,7 @@ _, page, _ = st.columns([1, 14, 1])
 
 with page, st.container(gap="xsmall"):
     with st.container(horizontal=True, vertical_alignment="bottom"):
-        st.title("AI News", width="content")
+        st.title("Daily AI News Briefing", width="content")
         if data is not None:
             st.caption(dashboard.format_header(data))
 
