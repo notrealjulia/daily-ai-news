@@ -1,6 +1,7 @@
 # ainews
 
 A personal AI news aggregator. It collects AI news from RSS feeds, gets each article's text, uses an LLM to classify and summarize articles, groups articles about the same event into stories, and writes a short digest per category.
+See the site here https://todaysainews.streamlit.app/
 
 **Status:** the pipeline stages below are implemented and tested, and a read-only Streamlit dashboard displays their results.
 
