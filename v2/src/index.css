@@ -209,6 +209,42 @@
     }
 }
 
+/* The background sparkles (components/sparkles.tsx). Each star has three frames - dot,
+   cross, sparkle - and shows exactly one at a time. Still: its rest frame. Animated: a
+   dot for most of the cycle, then cross, sparkle, cross, dot, each frame snapping in
+   (step-end) like a 90s sprite. Every star sets its own duration and delay. */
+.pixel-star > * {
+    visibility: hidden;
+}
+.pixel-star > [data-rest] {
+    visibility: visible;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .pixel-star > * {
+      animation: var(--sparkle-duration) step-end var(--sparkle-delay) infinite;
+    }
+    .pixel-star > .dot { animation-name: sparkle-dot; }
+    .pixel-star > .cross { animation-name: sparkle-cross; }
+    .pixel-star > .sparkle { animation-name: sparkle-sparkle; }
+}
+@keyframes sparkle-dot {
+    0% { visibility: visible; }
+    80% { visibility: hidden; }
+    94%, 100% { visibility: visible; }
+}
+@keyframes sparkle-cross {
+    0% { visibility: hidden; }
+    80% { visibility: visible; }
+    84% { visibility: hidden; }
+    90% { visibility: visible; }
+    94%, 100% { visibility: hidden; }
+}
+@keyframes sparkle-sparkle {
+    0% { visibility: hidden; }
+    84% { visibility: visible; }
+    90%, 100% { visibility: hidden; }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

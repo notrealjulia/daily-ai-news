@@ -6,6 +6,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { Sparkles } from "@/components/sparkles"
 import { Win98Audio } from "@/components/win98-audio"
 import { Win98Window } from "@/components/win98-window"
 
@@ -138,68 +139,71 @@ export function App() {
   const data = payload?.data
 
   return (
-    // Same margins as the Streamlit page: the middle 14 of 16 columns.
-    <main className="mx-auto flex w-7/8 flex-col gap-2 py-8">
-      <header className="flex flex-wrap items-end gap-x-4 gap-y-1">
-        <h1 className="text-[2rem] font-bold">Daily AI News Briefing</h1>
-        {data && (
-          <p className="pb-1.5 font-ui text-[11px] text-muted-foreground">
-            {data.header}
-          </p>
-        )}
-      </header>
-
-      {failed && (
-        <Alert variant="destructive">
-          <AlertTitle>Couldn't load the briefing</AlertTitle>
-          <AlertDescription>
-            Try reloading the page. Running locally? Start the data server from
-            the project root with <code>python -m v2.server</code> first.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {payload && !data && (
-        <Alert>
-          <AlertDescription>
-            No completed run yet. Run <code>python -m ainews cluster</code>,
-            then <code>python -m ainews digest</code>, and reload this page.
-            (This page is reading {payload.database}.)
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {data && (
-        <>
-          {data.briefing_audio && (
-            <>
-              <p className="font-ui text-[11px] font-bold">
-                Listen to the entire AI briefing
-              </p>
-              <Win98Audio src={data.briefing_audio} />
-              <p className="font-ui text-[11px] text-muted-foreground">
-                Or scroll down to listen by category.
-              </p>
-            </>
-          )}
-          {/* Cards in a row stretch to the taller one, content at the top. */}
-          <div className="grid gap-2 md:grid-cols-2">
-            {data.categories.map((category) => (
-              <CategoryCard
-                key={category.name}
-                category={category}
-                emptyText={data.empty_text}
-              />
-            ))}
-          </div>
-          {data.sources && (
-            <p className="font-ui text-[11px] leading-relaxed text-muted-foreground">
-              {data.sources}
+    <>
+      <Sparkles />
+      {/* Same margins as the Streamlit page: the middle 14 of 16 columns. */}
+      <main className="mx-auto flex w-7/8 flex-col gap-2 py-8">
+        <header className="flex flex-wrap items-end gap-x-4 gap-y-1">
+          <h1 className="text-[2rem] font-bold">Daily AI News Briefing</h1>
+          {data && (
+            <p className="pb-1.5 font-ui text-[11px] text-muted-foreground">
+              {data.header}
             </p>
           )}
-        </>
-      )}
-    </main>
+        </header>
+
+        {failed && (
+          <Alert variant="destructive">
+            <AlertTitle>Couldn't load the briefing</AlertTitle>
+            <AlertDescription>
+              Try reloading the page. Running locally? Start the data server
+              from the project root with <code>python -m v2.server</code> first.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {payload && !data && (
+          <Alert>
+            <AlertDescription>
+              No completed run yet. Run <code>python -m ainews cluster</code>,
+              then <code>python -m ainews digest</code>, and reload this page.
+              (This page is reading {payload.database}.)
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {data && (
+          <>
+            {data.briefing_audio && (
+              <>
+                <p className="font-ui text-[11px] font-bold">
+                  Listen to the entire AI briefing
+                </p>
+                <Win98Audio src={data.briefing_audio} />
+                <p className="font-ui text-[11px] text-muted-foreground">
+                  Or scroll down to listen by category.
+                </p>
+              </>
+            )}
+            {/* Cards in a row stretch to the taller one, content at the top. */}
+            <div className="grid gap-2 md:grid-cols-2">
+              {data.categories.map((category) => (
+                <CategoryCard
+                  key={category.name}
+                  category={category}
+                  emptyText={data.empty_text}
+                />
+              ))}
+            </div>
+            {data.sources && (
+              <p className="font-ui text-[11px] leading-relaxed text-muted-foreground">
+                {data.sources}
+              </p>
+            )}
+          </>
+        )}
+      </main>
+    </>
   )
 }
 
