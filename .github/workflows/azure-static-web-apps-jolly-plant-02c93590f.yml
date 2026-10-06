@@ -8,10 +8,16 @@ on:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+  # The daily pipeline's own audio commit can't start this workflow (pushes made with a
+  # workflow's GITHUB_TOKEN never trigger other workflows), so redeploy when it finishes,
+  # to pick up that day's stories and audio.
+  workflow_run:
+    workflows: ["Daily AI News"]
+    types: [completed]
 
 jobs:
   build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    if: github.event_name == 'push' || github.event_name == 'workflow_run' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
     permissions:
@@ -22,6 +28,25 @@ jobs:
         with:
           submodules: true
           lfs: false
+      # The site is static, so its data is a snapshot taken at deploy time: the same JSON
+      # v2/server.py serves locally, read from Turso, plus the committed narration MP3s.
+      # Both go in v2/public/, which the build copies into dist as-is.
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -e .
+      - name: Snapshot the dashboard data and audio
+        env:
+          AINEWS_BACKEND: turso
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          python -m v2.server --snapshot v2/public/dashboard.json
+          mkdir -p v2/public/audio
+          cp audio/*.mp3 v2/public/audio/
       - name: Install OIDC Client from Core Package
         run: npm install @actions/core@1.6.0 @actions/http-client
       - name: Get Id Token

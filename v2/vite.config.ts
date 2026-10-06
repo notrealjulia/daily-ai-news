@@ -11,10 +11,11 @@ export default defineConfig({
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
-  // The data and the narration MP3s come from the read-only Python server (server.py).
+  // Locally, the data and the narration MP3s come from the read-only Python server
+  // (server.py). The deployed build has static copies of both instead (see server.py).
   server: {
     proxy: {
-      "/api": "http://localhost:8000",
+      "/dashboard.json": "http://localhost:8000",
       "/audio": "http://localhost:8000",
     },
   },

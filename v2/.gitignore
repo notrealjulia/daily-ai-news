@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Generated for the deployed build only (see server.py)
+public/dashboard.json
+public/audio/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

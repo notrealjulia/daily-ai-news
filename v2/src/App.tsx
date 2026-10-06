@@ -9,7 +9,7 @@ import {
 import { Win98Audio } from "@/components/win98-audio"
 import { Win98Window } from "@/components/win98-window"
 
-// The shape of /api/dashboard (see v2/server.py). All the text is worked out in Python,
+// The shape of /dashboard.json (see v2/server.py). All the text is worked out in Python,
 // by the same ainews.dashboard functions the Streamlit page uses.
 type Story = {
   title: string
@@ -126,7 +126,7 @@ export function App() {
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    fetch("/api/dashboard")
+    fetch("/dashboard.json")
       .then((response) => {
         if (!response.ok) throw new Error(response.statusText)
         return response.json()
@@ -151,10 +151,10 @@ export function App() {
 
       {failed && (
         <Alert variant="destructive">
-          <AlertTitle>Can't reach the V2 API server</AlertTitle>
+          <AlertTitle>Couldn't load the briefing</AlertTitle>
           <AlertDescription>
-            Start it from the project root with <code>python -m v2.server</code>
-            , then reload this page.
+            Try reloading the page. Running locally? Start the data server from
+            the project root with <code>python -m v2.server</code> first.
           </AlertDescription>
         </Alert>
       )}

@@ -1,22 +1,29 @@
 """Read-only JSON + audio server for the V2 (React) dashboard.
 
 Run from the project root:  python -m v2.server
+Or, for the deployed site:  python -m v2.server --snapshot v2/public/dashboard.json
 
 Like app.py, this is a thin layer over ainews.dashboard: no SQL, no pipeline code and no
 provider code, so it can't run a stage or call an LLM/TTS provider either (a test
 enforces it). It serves exactly two things, on localhost only: what the Streamlit page
 shows, as JSON, and the narration MP3s `narrate` wrote to audio/.
+
+The deployed site (Azure Static Web Apps) has no server: its workflow writes the same
+JSON to a static file with --snapshot and copies the MP3s next to it, so the page loads
+/dashboard.json and /audio/*.mp3 the same way in both places.
 """
 
+import argparse
 import json
 import re
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
 from ainews import dashboard
 
-PORT = 8000  # v2/vite.config.ts proxies /api and /audio here
+PORT = 8000  # v2/vite.config.ts proxies /dashboard.json and /audio here
 
 
 def _audio_url(path: Path | None) -> str | None:
@@ -62,6 +69,18 @@ def payload() -> dict:
     }
 
 
+def write_snapshot(path: Path) -> int:
+    """Write payload() to `path`; the exit code. Refuses (1) when there is no completed
+    run, so a deploy fails and the last good site stays up rather than an empty page."""
+    snapshot = payload()
+    if snapshot["data"] is None:
+        print(f"No completed run in {snapshot['database']}; no snapshot written.", file=sys.stderr)
+        return 1
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+    return 0
+
+
 def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
     """(start, end) inclusive for a Range header, the whole file when there is none (or
     it isn't one we understand), or None when it can't be satisfied. Browsers need range
@@ -80,7 +99,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         try:
-            if path == "/api/dashboard":
+            if path == "/dashboard.json":
                 self._send(200, "application/json", json.dumps(payload()).encode())
             # Only a plain file name directly inside audio/: no "..", no subfolders.
             elif re.fullmatch(r"/audio/[\w-]+\.mp3", path) and Path(path[1:]).is_file():
@@ -112,5 +131,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--snapshot", type=Path, metavar="PATH", help="write the JSON to PATH and exit")
+    args = parser.parse_args()
+    if args.snapshot:
+        sys.exit(write_snapshot(args.snapshot))
     print(f"V2 API on http://localhost:{PORT} (read-only). Ctrl+C to stop.")
     ThreadingHTTPServer(("localhost", PORT), Handler).serve_forever()
