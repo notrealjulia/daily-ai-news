@@ -149,7 +149,7 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
 
     data = dashboard.load_dashboard(conn)
 
-    assert list(data.categories) == [name for row in dashboard.CATEGORY_GRID for name in row]
+    assert list(data.categories) == list(defaults.CATEGORY_ORDER)
     assert "Spam" not in data.categories and "Spam must never appear." not in repr(data)
     research = data.categories["Research"]
     assert [s.summary for s in research.stories] == ["Newer research story.", "Older research story."]
@@ -233,26 +233,11 @@ def test_a_multi_source_story_appears_once_with_all_its_sources_linked(conn):
     assert data.total_stories == 1 and data.total_articles == 4  # once, with all four articles
     assert story.title == "Earliest headline"  # the earliest article's title
     assert [s.name for s in story.sources] == ["The Decoder", "Blog", "TechCrunch AI", "Wiki"]
-    markdown = dashboard.story_markdown(story)
-    assert "[The Decoder](https://the-decoder.test/a)" in markdown
-    assert "[TechCrunch AI](https://techcrunch.test/b)" in markdown
-    assert "javascript" not in markdown and "Blog" in markdown  # not a link, still named
-    assert "%28b%29" in markdown  # parentheses can't end the link early
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("Anthropic may raise $100 billion at a $2 trillion valuation",
-         r"Anthropic may raise \$100 billion at a \$2 trillion valuation"),
-        ("*bold* and _italic_ [link](http://evil.test) `code`",
-         r"\*bold\* and \_italic\_ \[link\](http://evil.test) \`code\`"),
-        ("- <b>x</b> & y", r"\- \<b\>x\</b\> \& y"),
-    ],
-    ids=["dollar-amounts", "markdown-and-links", "html-and-list-marker"],
-)  # fmt: skip
-def test_text_from_the_web_is_escaped_before_it_is_shown_as_markdown(raw, expected):
-    assert dashboard.escape_markdown(raw) == expected
+    # Each source links to its article, except a link that isn't plain http(s): still
+    # named, but never a link (no javascript: hrefs on the page).
+    assert [s.url for s in story.sources] == [
+        "https://the-decoder.test/a", None, "https://techcrunch.test/b", "https://x.test/a_(b)",
+    ]
 
 
 FEEDS_TOML = """\

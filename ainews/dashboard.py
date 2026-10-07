@@ -14,14 +14,12 @@ and every category digested with the current digest prompt and default model). A
 that is only partly done is never shown.
 """
 
-import re
 import sqlite3
 import tomllib
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone, tzinfo
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from ainews import db
@@ -34,11 +32,6 @@ from ainews.prompts import DIGEST_PROMPT_VERSION
 # runner that now writes the deployed snapshot does. A
 # real ZoneInfo (not a fixed UTC+1/+2 offset) tracks Denmark's actual DST transitions.
 DASHBOARD_TIMEZONE = ZoneInfo("Europe/Copenhagen")
-
-# The six categories shown, as rows of the 2-column grid (reading order lives in
-# defaults.CATEGORY_ORDER, shared with narrate's full briefing). Spam is deliberately
-# absent: it is never displayed.
-CATEGORY_GRID = tuple(zip(CATEGORY_ORDER[::2], CATEGORY_ORDER[1::2]))
 
 
 @dataclass(frozen=True)
@@ -72,7 +65,7 @@ class Dashboard:
     window_hours: int
     total_stories: int
     total_articles: int
-    categories: dict[str, CategoryView]  # keyed by name, in CATEGORY_ORDER
+    categories: dict[str, CategoryView]  # keyed by name, in CATEGORY_ORDER (never Spam)
 
 
 # --- Loading -----------------------------------------------------------------
@@ -141,20 +134,15 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     )
 
 
-def open_dashboard(
-    path: str | Path = db.DEFAULT_DB_PATH, settings: Mapping[str, str] | None = None
-) -> Dashboard | None:
+def open_dashboard(path: str | Path = db.DEFAULT_DB_PATH) -> Dashboard | None:
     """Open the database read-only and load the dashboard.
-
-    `settings` (a hosting platform's secrets, where there are any; nothing passes them
-    now) is passed on to db.connect_readonly.
 
     Returns None if there is nothing to show: no database file, a database from before
     clustering existed (no story tables), or no fully processed run. It never writes to,
     creates, or upgrades the database.
     """
     try:
-        conn = db.connect_readonly(path, settings)
+        conn = db.connect_readonly(path)
     except sqlite3.OperationalError:
         return None
     try:
@@ -166,35 +154,8 @@ def open_dashboard(
 
 
 # --- Text for the page -------------------------------------------------------
-
-_MARKDOWN_SPECIAL = re.compile(r"([\\`*_\[\]<>$#~&])")
-
-
-def escape_markdown(text: str) -> str:
-    """Make text from the web safe to show as markdown.
-
-    Titles, summaries and digests are untrusted text. Escaping stops markdown from
-    reformatting them (and `$...$` from being typeset as math, which matters for
-    "$2 trillion" and "$100 billion"); HTML is never enabled, so tags stay plain text.
-    Text is shown as one line.
-    """
-    text = _MARKDOWN_SPECIAL.sub(r"\\\1", " ".join(text.split()))
-    text = re.sub(r"^([-+])", r"\\\1", text)  # a leading "- " would start a list
-    return re.sub(r"^(\d+)([.)])", r"\1\\\2", text)  # ...and so would "1. "
-
-
-def _source_markdown(source: Source) -> str:
-    name = escape_markdown(source.name)
-    if source.url is None:
-        return name
-    # Percent-encode anything that could end the link early, such as ")" or spaces.
-    return f"[{name}]({quote(source.url, safe=':/?#[]@!$&' + chr(39) + '*+,;=%~-._')})"
-
-
-def story_markdown(story: StoryView) -> str:
-    """One story: title, summary, and its sources, each linked to its article."""
-    sources = " · ".join(_source_markdown(source) for source in story.sources)
-    return f"**{escape_markdown(story.title)}**  \n{escape_markdown(story.summary)}  \nSources: {sources}"
+#
+# Plain text: the React page renders every string as text, never as markup or HTML.
 
 
 def _plural(count: int, singular: str, plural: str) -> str:
@@ -205,9 +166,9 @@ def expander_label(story_count: int) -> str:
     return f"View {_plural(story_count, 'story', 'stories')}"
 
 
-def database_label(settings: Mapping[str, str] | None = None) -> str:
+def database_label() -> str:
     """Which database the page is reading, for the message shown when there is no run."""
-    return "Turso" if db.uses_turso(settings) else "the local SQLite file"
+    return "Turso" if db.uses_turso() else "the local SQLite file"
 
 
 def empty_text(window_hours: int) -> str:
@@ -226,7 +187,7 @@ def sources_caption(path: str | Path = "feeds.toml") -> str | None:
             feeds = tomllib.load(f).get("feeds", [])
     except (OSError, tomllib.TOMLDecodeError):
         return None
-    names = [escape_markdown(feed["name"]) for feed in feeds if "name" in feed]
+    names = [feed["name"] for feed in feeds if "name" in feed]
     return f"Sources monitored: {' · '.join(names)}" if names else None
 
 

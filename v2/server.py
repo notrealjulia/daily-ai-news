@@ -37,21 +37,18 @@ def payload() -> dict:
     data = dashboard.open_dashboard()
     if data is None:
         return {"data": None, "database": dashboard.database_label()}
-    sources = dashboard.sources_caption()
     return {
         "data": {
             "header": dashboard.format_header(data),
             "briefing_audio": _audio_url(dashboard.briefing_audio_path()),
             "empty_text": dashboard.empty_text(data.window_hours),
-            # sources_caption() escapes markdown (a leftover of the old Streamlit page);
-            # React shows plain text, so undo it.
-            "sources": re.sub(r"\\(.)", r"\1", sources) if sources else None,
+            "sources": dashboard.sources_caption(),
             "categories": [
                 {
                     "name": category.name,
                     "headline": category.headline,
                     "digest": category.digest,
-                    "audio": _audio_url(dashboard.category_audio_path(name)),
+                    "audio": _audio_url(dashboard.category_audio_path(category.name)),
                     "expander_label": dashboard.expander_label(category.story_count),
                     "stories": [
                         {
@@ -62,9 +59,7 @@ def payload() -> dict:
                         for story in category.stories
                     ],
                 }
-                for row in dashboard.CATEGORY_GRID
-                for name in row
-                for category in [data.categories[name]]
+                for category in data.categories.values()
             ],
         }
     }

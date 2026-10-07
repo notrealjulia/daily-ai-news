@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ainews import dashboard, db, defaults, enrich, llm, narrate, prompts
+from ainews import db, defaults, enrich, llm, narrate, prompts
 from ainews.__main__ import main
 from ainews.llm import LLMError
 
@@ -390,7 +390,6 @@ def test_the_full_briefing_joins_only_this_runs_narrated_categories_in_dashboard
     assert joined == [[defaults.audio_path(c) for c in ("Industry News", "Research", "Business")]]
     assert defaults.BRIEFING_AUDIO_PATH.is_file()
     assert summary.briefing_error is None
-    assert defaults.CATEGORY_ORDER == tuple(name for row in dashboard.CATEGORY_GRID for name in row)
 
 
 def test_no_full_briefing_is_made_when_nothing_was_narrated_this_run(conn, tmp_path, monkeypatch, joined):
