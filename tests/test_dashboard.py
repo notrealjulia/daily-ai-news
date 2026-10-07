@@ -1,6 +1,5 @@
-"""Tests for the read-only dashboard: ainews/dashboard.py and app.py."""
+"""Tests for the read-only dashboard: ainews/dashboard.py."""
 
-import ast
 import hashlib
 import sqlite3
 import subprocess
@@ -15,7 +14,6 @@ from ainews import dashboard, db, defaults, prompts
 UTC = timezone.utc
 NOW = datetime(2026, 9, 20, 15, 0, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parent.parent
-APP = ROOT / "app.py"
 MODEL, PROMPT = defaults.DEFAULT_MODEL, prompts.DIGEST_PROMPT_VERSION
 
 
@@ -349,77 +347,6 @@ def test_the_dashboard_code_cannot_reach_openai_or_run_the_pipeline():
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, cwd=ROOT)
     assert result.stdout.strip() == "[]", result.stderr  # importing it loads none of them
 
-    source = APP.read_text(encoding="utf-8")
-    imported = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
-    assert imported == {"streamlit", "ainews.dashboard"}  # app.py is a thin renderer
-    assert "sqlite3" not in source and "SELECT" not in source
-
-
-# --- the Streamlit app itself ------------------------------------------------
-
-
-@pytest.mark.parametrize("with_data", [True, False], ids=["with-a-completed-run", "before-anything-has-run"])
-def test_the_streamlit_app_renders(tmp_path, monkeypatch, with_data):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
-
-    monkeypatch.chdir(tmp_path)  # the app reads ./ainews.db and ./feeds.toml, like the command line does
-    if with_data:
-        (tmp_path / "feeds.toml").write_text(FEEDS_TOML, encoding="utf-8")
-        conn = db.connect(tmp_path / "ainews.db")
-        add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
-        conn.close()
-
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-
-    assert not app.exception
-    if not with_data:
-        assert "No completed run yet" in app.info[0].value
-        assert app.get("audio") == []  # no narration file, no player
-        return
-    everything = " ".join(
-        [m.value for m in app.markdown] + [c.value for c in app.caption] + [e.label for e in app.expander]
-        + [s.value for s in app.subheader]  # the category headings are native subheaders
-    )
-    for name in ("Product Release", "Industry News", "Research", "Business", "Regulation", "Other"):
-        assert name in everything
-    assert "#### Headline for Research" in everything  # the headline is a heading above the digest
-    assert everything.index("Headline for Research") < everything.index("Digest of Research.")
-    assert "Last 24 hours · 1 story from 1 article" in everything
-    assert "View 1 story" in everything and "No stories in the last 24 hours." in everything
-    assert "Spam" not in everything
-    assert "Sources monitored: OpenAI · Simon Willison" in everything
-    assert "openai.com" not in everything and "fulltext" not in everything  # names only
-    assert app.get("audio") == []  # narrate hasn't run in this test, so no player
-
-
-def test_the_streamlit_app_shows_the_research_audio_player_only_when_the_file_exists(tmp_path, monkeypatch):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
-
-    monkeypatch.chdir(tmp_path)  # app.py reads ./audio/research.mp3, like the command line does
-    conn = db.connect(tmp_path / "ainews.db")
-    # A second non-empty category, so the assertion below can't pass merely because
-    # Research happens to be the only category with a card worth putting a player on.
-    add_run(conn, [
-        ("Research", "A research story.", [add_article(conn, "A research article")]),
-        ("Business", "A business story.", [add_article(conn, "A business article", url="https://x.test/b")]),
-    ])  # fmt: skip
-    conn.close()
-    (tmp_path / "audio").mkdir()
-    (tmp_path / "audio" / "research.mp3").write_bytes(b"fake-mp3-bytes")
-
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-
-    assert not app.exception
-    assert len(app.get("audio")) == 1  # exactly one player, and only Research has the file
-
-
 
 def test_briefing_audio_path_reflects_only_whether_the_file_exists(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -428,39 +355,3 @@ def test_briefing_audio_path_reflects_only_whether_the_file_exists(tmp_path, mon
     (tmp_path / "audio").mkdir()
     (tmp_path / "audio" / "briefing.mp3").write_bytes(b"fake-audio-bytes")
     assert dashboard.briefing_audio_path() == Path("audio/briefing.mp3")
-
-
-def test_the_streamlit_app_shows_the_full_briefing_above_the_category_cards(tmp_path, monkeypatch):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
-
-    monkeypatch.chdir(tmp_path)
-    conn = db.connect(tmp_path / "ainews.db")
-    add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
-    conn.close()
-    (tmp_path / "audio").mkdir()
-    (tmp_path / "audio" / "research.mp3").write_bytes(b"fake-mp3-bytes")
-    (tmp_path / "audio" / "briefing.mp3").write_bytes(b"fake-mp3-bytes")
-
-    app = AppTest.from_file(str(APP), default_timeout=30).run()
-
-    assert not app.exception
-    assert len(app.get("audio")) == 2  # the full briefing, plus Research's own player unchanged
-    assert app.markdown[0].value == "**Listen to the entire AI briefing**"  # before any card's text
-    captions = [c.value for c in app.caption]
-    assert captions.index("Or scroll down to listen by category.") == 1  # right after the header line
-    assert captions[0].startswith("Last updated:")
-
-def test_the_deployed_app_takes_its_database_settings_from_streamlit_secrets(tmp_path, monkeypatch):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
-
-    monkeypatch.chdir(tmp_path)  # no ainews.db here, so falling back to the local file shows "no run"
-
-    without = AppTest.from_file(str(APP), default_timeout=30).run()
-    assert "reading the local SQLite file" in without.info[0].value
-
-    deployed = AppTest.from_file(str(APP), default_timeout=30)
-    deployed.secrets["AINEWS_BACKEND"] = "turso"  # the credentials are missing on purpose: nothing to connect to
-    deployed.run()
-    assert "needs TURSO_DATABASE_URL and TURSO_AUTH_TOKEN" in deployed.exception[0].value

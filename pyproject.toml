@@ -1,13 +1,12 @@
 [project]
 name = "ainews"
 version = "0.1.0"
-description = "Personal AI news aggregator: RSS -> SQLite -> LLM enrichment -> Streamlit"
+description = "Personal AI news aggregator: RSS -> SQLite -> LLM enrichment -> React dashboard"
 requires-python = ">=3.12"
 dependencies = [
     "feedparser>=6.0",
     "openai>=3.0",  # developed and tested against 3.16
     "python-dotenv>=1.0",
-    "streamlit>=1.40",
     "trafilatura>=2.0",
     "turso_serverless>=0.1",  # hosted database, only used when AINEWS_BACKEND=turso
     "lxml_html_clean>=0.4",  # Trafilatura's justext needs it now that lxml split it out
@@ -29,6 +28,6 @@ testpaths = ["tests"]
 pythonpath = ["."]  # lets `pytest` import ainews without installing the package
 
 [tool.setuptools]
-# Explicit, because app.py sits next to the package and would otherwise
-# confuse setuptools' automatic discovery.
+# Explicit, because v2/, tests/ and Deprecated/ sit next to the package and would
+# otherwise confuse setuptools' automatic discovery.
 packages = ["ainews"]

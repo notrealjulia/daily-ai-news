@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ainews import db, defaults
+from test_dashboard import FEEDS_TOML, add_article, add_run
 from v2 import server
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +25,34 @@ def test_the_v2_server_cannot_reach_a_provider_or_run_the_pipeline():
 def test_payload_before_anything_has_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no ./ainews.db here
     assert server.payload() == {"data": None, "database": "the local SQLite file"}
+
+
+def test_payload_with_a_completed_run(tmp_path, monkeypatch):
+    """What the local page and the deployed snapshot both show, end to end."""
+    monkeypatch.chdir(tmp_path)  # payload() reads ./ainews.db, ./feeds.toml and ./audio/, like the command line does
+    (tmp_path / "feeds.toml").write_text(FEEDS_TOML, encoding="utf-8")
+    conn = db.connect(tmp_path / "ainews.db")
+    add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
+    conn.close()
+    (tmp_path / "audio").mkdir()
+    for name in ("research.mp3", "briefing.mp3"):
+        (tmp_path / "audio" / name).write_bytes(b"fake-mp3-bytes")
+
+    data = server.payload()["data"]
+
+    assert data["header"].endswith("Last 24 hours · 1 story from 1 article")
+    assert data["sources"] == "Sources monitored: OpenAI · Simon Willison"  # file order; names only
+    assert data["briefing_audio"].startswith("/audio/briefing.mp3?v=")
+    assert data["empty_text"] == "No stories in the last 24 hours."
+    names = [category["name"] for category in data["categories"]]
+    assert names == list(defaults.CATEGORY_ORDER)  # all six in reading order, never Spam
+    research = data["categories"][names.index("Research")]
+    assert (research["headline"], research["digest"]) == ("Headline for Research", "Digest of Research.")
+    assert research["expander_label"] == "View 1 story"
+    assert research["audio"].startswith("/audio/research.mp3?v=")
+    assert [story["title"] for story in research["stories"]] == ["A research article"]
+    business = data["categories"][names.index("Business")]
+    assert business["stories"] == [] and business["audio"] is None  # no stories, no narration file
 
 
 def test_snapshot_writes_the_same_json_the_server_serves(tmp_path, monkeypatch):
