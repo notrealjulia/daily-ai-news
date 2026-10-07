@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_the_v2_server_cannot_reach_a_provider_or_run_the_pipeline():
-    # The same rule as the Streamlit dashboard (see test_dashboard.py), for the same reason.
+    # The same rule as ainews.dashboard itself (see test_dashboard.py), for the same reason.
     forbidden = ("openai", "elevenlabs", "trafilatura", "feedparser", "streamlit", "ainews.llm",
                  "ainews.enrich", "ainews.stories", "ainews.digest", "ainews.narrate",
                  "ainews.extract", "ainews.ingest", "ainews.inspect_feed")  # fmt: skip

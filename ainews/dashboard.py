@@ -1,7 +1,9 @@
 """What the read-only dashboard shows, worked out from SQLite (and the source names in feeds.toml).
 
-`app.py` (Streamlit) only renders what this module returns. There is no SQL here (see
-db.py) and no Streamlit, so the logic can be tested without a browser. This module
+The React dashboard only renders what this module returns: v2/server.py turns it into
+JSON (served locally, or written as the deployed site's static snapshot). There is no
+SQL here (see db.py) and no web framework, so the logic can be tested without a
+browser. This module
 imports nothing from the pipeline or the LLM code: only `db`, and the import-free
 settings in `defaults.py` (the default model, and where `narrate` writes each category's
 narration) and `prompts.py` (the current digest prompt version). That is what makes the
@@ -27,8 +29,9 @@ from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, 
 from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # "Last updated" is always shown in this timezone, not the server's own: the previous
-# default (astimezone(None), the machine's local time) silently showed UTC on Streamlit
-# Community Cloud, whose containers run in UTC regardless of who's reading the page. A
+# default (astimezone(None), the machine's local time) silently showed UTC on a hosted
+# server running in UTC regardless of who's reading the page - as the GitHub Actions
+# runner that now writes the deployed snapshot does. A
 # real ZoneInfo (not a fixed UTC+1/+2 offset) tracks Denmark's actual DST transitions.
 DASHBOARD_TIMEZONE = ZoneInfo("Europe/Copenhagen")
 
@@ -143,7 +146,8 @@ def open_dashboard(
 ) -> Dashboard | None:
     """Open the database read-only and load the dashboard.
 
-    `settings` (Streamlit's secrets, when deployed) is passed on to db.connect_readonly.
+    `settings` (a hosting platform's secrets, where there are any; nothing passes them
+    now) is passed on to db.connect_readonly.
 
     Returns None if there is nothing to show: no database file, a database from before
     clustering existed (no story tables), or no fully processed run. It never writes to,
@@ -246,8 +250,8 @@ def format_header(dashboard: Dashboard, tz: tzinfo = DASHBOARD_TIMEZONE) -> str:
     """e.g. "Last updated: Sep 20, 18:00 · Last 24 hours · 8 stories from 9 articles".
 
     The time is shown in `tz`, by default DASHBOARD_TIMEZONE (Europe/Copenhagen) -
-    deliberately not the server's own local time, which is meaningless on a host like
-    Streamlit Community Cloud.
+    deliberately not the server's own local time, which is meaningless on a host running
+    in UTC, like the GitHub Actions runner that writes the deployed snapshot.
     """
     local = dashboard.last_updated.astimezone(tz)
     return (

@@ -169,10 +169,11 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
 
 def test_last_updated_defaults_to_copenhagen_time_not_the_servers_own():
     # The bug this guards against: "Last updated" must show Copenhagen local time
-    # regardless of what timezone the machine running the app is in - Streamlit
-    # Community Cloud runs in UTC, so if format_header's default ever again fell back
-    # to the server's own local time (astimezone(None)), this would silently show raw
-    # UTC there, which is exactly what was reported (07:51 shown instead of 09:51).
+    # regardless of what timezone the machine making the page is in - the GitHub
+    # Actions runner that writes the deployed snapshot runs in UTC, so if format_header's
+    # default ever again fell back to the server's own local time (astimezone(None)), this
+    # would silently show raw UTC, which is exactly what was once reported on a UTC host
+    # (07:51 shown instead of 09:51).
     summer = dashboard.Dashboard(
         last_updated=datetime(2026, 9, 24, 7, 51, tzinfo=UTC),  # Copenhagen: UTC+2, DST
         window_hours=24, total_stories=1, total_articles=1, categories={},

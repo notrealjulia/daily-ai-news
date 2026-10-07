@@ -294,7 +294,7 @@ def test_a_database_from_before_digest_headlines_gains_the_column_and_keeps_its_
     ("environment", "settings", "expected"),
     [
         ({}, {}, False),  # local SQLite is the default
-        ({}, {"AINEWS_BACKEND": "turso"}, True),  # e.g. Streamlit secrets
+        ({}, {"AINEWS_BACKEND": "turso"}, True),  # e.g. a hosting platform's secrets
         ({"AINEWS_BACKEND": "turso"}, {}, True),  # the real environment, as in GitHub Actions
         ({"AINEWS_BACKEND": "sqlite"}, {"AINEWS_BACKEND": "turso"}, False),  # the environment wins
         ({}, {"TURSO_DATABASE_URL": "u", "TURSO_AUTH_TOKEN": "t"}, False),  # credentials alone never switch

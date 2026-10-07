@@ -10,7 +10,7 @@ MVP scope, deliberately small:
       category's stories, then TTS turns that exact script into audio. The script is
       persisted (`narrations`, versioned like digests: run, category, model,
       prompt_version) before TTS ever runs, so what is in the database and what is in
-      the audio always agree. It is never displayed anywhere (not in Streamlit).
+      the audio always agree. It is never displayed anywhere (not on the dashboard).
     - Unlike digests, there is no dedup: every narrate run writes a new row and makes a
       fresh script, since narrate is a manual, on-demand action meant to be rerun for a
       new take, not skipped because a narration already exists for today.
@@ -169,7 +169,7 @@ def narrate_category(
     narrate_all_categories fetches each category's stories only once). (ok, script,
     error): `script` is the generated text whenever one was successfully written, even
     if the later TTS call then failed - it is also, by then, already in the
-    `narrations` table, the only place it is kept; it is never shown in Streamlit. On
+    `narrations` table, the only place it is kept; it is never shown on the dashboard. On
     success, `path` (default: defaults.audio_path(category)) now holds the new
     narration (any prior file is replaced); on any failure, `path` is left untouched."""
     script, error = generate_script(llm, category, stories)

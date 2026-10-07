@@ -26,8 +26,8 @@ dist/
 .ruff_cache/
 
 # audio/*.mp3 is deliberately NOT ignored: the daily GitHub Actions run commits the
-# narration files here, and the deployed Streamlit app reads them straight from the repo
-# checkout (see the workflow's "Commit and push" step and README's Deployment section).
+# narration files here, and the Azure Static Web Apps deploy copies them from the repo
+# checkout into the site (see both workflows and README's Deployment section).
 
 # Local-only comparison takes (e.g. manual TTS provider/voice tests), never committed.
 audio/local/

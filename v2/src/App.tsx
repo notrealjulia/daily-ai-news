@@ -11,7 +11,7 @@ import { Win98Audio } from "@/components/win98-audio"
 import { Win98Window } from "@/components/win98-window"
 
 // The shape of /dashboard.json (see v2/server.py). All the text is worked out in Python,
-// by the same ainews.dashboard functions the Streamlit page uses.
+// by ainews.dashboard.
 type Story = {
   title: string
   summary: string
@@ -141,7 +141,7 @@ export function App() {
   return (
     <>
       <Sparkles />
-      {/* Same margins as the Streamlit page: the middle 14 of 16 columns. */}
+      {/* Page margins: the content takes the middle 14 of 16 columns. */}
       <main className="mx-auto flex w-7/8 flex-col gap-2 py-8">
         <header className="flex flex-wrap items-end gap-x-4 gap-y-1">
           <h1 className="text-[2rem] font-bold">Daily AI News Briefing</h1>

@@ -3,10 +3,10 @@
 Run from the project root:  python -m v2.server
 Or, for the deployed site:  python -m v2.server --snapshot v2/public/dashboard.json
 
-Like app.py, this is a thin layer over ainews.dashboard: no SQL, no pipeline code and no
-provider code, so it can't run a stage or call an LLM/TTS provider either (a test
-enforces it). It serves exactly two things, on localhost only: what the Streamlit page
-shows, as JSON, and the narration MP3s `narrate` wrote to audio/.
+A thin layer over ainews.dashboard: no SQL, no pipeline code and no provider code, so
+it can't run a stage or call an LLM/TTS provider (a test enforces it). It serves exactly
+two things, on localhost only: what the dashboard shows, as JSON, and the narration MP3s
+`narrate` wrote to audio/.
 
 The deployed site (Azure Static Web Apps) has no server: its workflow writes the same
 JSON to a static file with --snapshot and copies the MP3s next to it, so the page loads
@@ -33,7 +33,7 @@ def _audio_url(path: Path | None) -> str | None:
 
 
 def payload() -> dict:
-    """Everything app.py renders, in the same order, with the same text."""
+    """Everything the dashboard shows, in page order, with its final text."""
     data = dashboard.open_dashboard()
     if data is None:
         return {"data": None, "database": dashboard.database_label()}
@@ -43,7 +43,8 @@ def payload() -> dict:
             "header": dashboard.format_header(data),
             "briefing_audio": _audio_url(dashboard.briefing_audio_path()),
             "empty_text": dashboard.empty_text(data.window_hours),
-            # sources_caption() is escaped for Streamlit's markdown; React shows plain text.
+            # sources_caption() escapes markdown (a leftover of the old Streamlit page);
+            # React shows plain text, so undo it.
             "sources": re.sub(r"\\(.)", r"\1", sources) if sources else None,
             "categories": [
                 {

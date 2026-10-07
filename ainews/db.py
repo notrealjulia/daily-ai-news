@@ -204,7 +204,7 @@ def connect(path: str | Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
         conn.row_factory = sqlite3.Row
         # SQLite ignores foreign keys unless enabled on every connection.
         conn.execute("PRAGMA foreign_keys = ON")
-        # WAL lets Streamlit read while the enrich step is writing.
+        # WAL lets the dashboard's local server read while a pipeline stage is writing.
         conn.execute("PRAGMA journal_mode = WAL")
     init_schema(conn)
     return conn
@@ -705,9 +705,9 @@ def connect_readonly(
 
     With AINEWS_BACKEND=turso this is the hosted database, and nothing is created or
     migrated either. There, read-only is enforced by the token, not by this function:
-    give the dashboard a read-only Turso token. `settings` (for example Streamlit's
-    secrets) supplies AINEWS_BACKEND and the Turso credentials where the real
-    environment doesn't; the real environment wins.
+    give the dashboard a read-only Turso token. `settings` (a hosting platform's secrets,
+    where there are any; nothing passes them now) supplies AINEWS_BACKEND and the Turso
+    credentials where the real environment doesn't; the real environment wins.
     """
     if uses_turso(settings):
         return _connect_turso(settings)
