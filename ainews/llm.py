@@ -14,9 +14,7 @@ voice's own account-configured settings - split into sentence-boundary chunks,
 loudness-normalized with ffmpeg and concatenated, since ElevenLabs' volume drifts down
 over a long narration (confirmed with a local A/B listening test). The same ffmpeg
 concatenation also joins the finished category files into the full briefing
-(concat_audio_files), with no further TTS. The previous
-OpenAI-based TTS implementation is kept for reference in Deprecated/openai_tts.py;
-nothing here imports it.
+(concat_audio_files), with no further TTS.
 """
 
 import json
