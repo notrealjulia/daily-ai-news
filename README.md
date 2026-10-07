@@ -171,7 +171,7 @@ the `github-actions[bot]` identity, using the workflow's own `GITHUB_TOKEN` (nee
 changed (all TTS calls failed, say).
 
 The dashboard is a static site on Azure Static Web Apps
-(`.github/workflows/deploy-azure.yml`), at
+(`.github/workflows/azure-static-web-apps-jolly-plant-02c93590f.yml`), at
 https://www.dailyainewsbriefing.com/ (the Azure default address is
 https://jolly-plant-02c93590f.3.azurestaticapps.net). There is no server in production.
 Each deploy installs the project, runs `python -m web.server --snapshot
@@ -213,7 +213,6 @@ ainews/
 web/              the React dashboard (Vite + shadcn/ui), deployed to Azure Static Web Apps
   server.py       read-only JSON + audio server for local development; --snapshot writes the deploy's data
   src/            the page (App.tsx) and its Windows 98-style components
-Deprecated/       replaced provider implementations kept for reference; nothing imports them
 audio/            narration MP3s, one per category plus the full briefing; committed by GitHub Actions daily
 feeds.toml        sources and their strategies
 tests/            offline tests
