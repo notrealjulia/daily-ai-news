@@ -1,3 +1,6 @@
+# Don't rename this file. Azure Static Web Apps identifies the app from the workflow's
+# generated filename (azure-static-web-apps-<adjective>-<noun>-<hex>.yml) when it checks
+# the GitHub OIDC token, and rejects the deploy otherwise. The display name below is free.
 name: Deploy to Azure
 
 on:
