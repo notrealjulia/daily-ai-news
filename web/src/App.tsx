@@ -10,7 +10,7 @@ import { Sparkles } from "@/components/sparkles"
 import { Win98Audio } from "@/components/win98-audio"
 import { Win98Window } from "@/components/win98-window"
 
-// The shape of /dashboard.json (see v2/server.py). All the text is worked out in Python,
+// The shape of /dashboard.json (see web/server.py). All the text is worked out in Python,
 // by ainews.dashboard.
 type Story = {
   title: string
@@ -157,7 +157,8 @@ export function App() {
             <AlertTitle>Couldn't load the briefing</AlertTitle>
             <AlertDescription>
               Try reloading the page. Running locally? Start the data server
-              from the project root with <code>python -m v2.server</code> first.
+              from the project root with <code>python -m web.server</code>{" "}
+              first.
             </AlertDescription>
           </Alert>
         )}

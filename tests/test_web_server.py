@@ -1,4 +1,4 @@
-"""Tests for the V2 (React) dashboard's read-only server: v2/server.py."""
+"""Tests for the web dashboard's read-only server: web/server.py."""
 
 import json
 import subprocess
@@ -7,17 +7,17 @@ from pathlib import Path
 
 from ainews import db, defaults
 from test_dashboard import FEEDS_TOML, add_article, add_run
-from v2 import server
+from web import server
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_the_v2_server_cannot_reach_a_provider_or_run_the_pipeline():
+def test_the_web_server_cannot_reach_a_provider_or_run_the_pipeline():
     # The same rule as ainews.dashboard itself (see test_dashboard.py), for the same reason.
     forbidden = ("openai", "elevenlabs", "trafilatura", "feedparser", "ainews.llm",
                  "ainews.enrich", "ainews.stories", "ainews.digest", "ainews.narrate",
                  "ainews.extract", "ainews.ingest", "ainews.inspect_feed")  # fmt: skip
-    probe = f"import sys, v2.server; print(sorted(m for m in {forbidden!r} if m in sys.modules))"
+    probe = f"import sys, web.server; print(sorted(m for m in {forbidden!r} if m in sys.modules))"
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, cwd=ROOT)
     assert result.stdout.strip() == "[]", result.stderr
 

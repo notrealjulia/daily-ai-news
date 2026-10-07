@@ -3,7 +3,7 @@
 A personal AI news aggregator. It collects AI news from RSS feeds, gets each article's text, uses an LLM to classify and summarize articles, groups articles about the same event into stories, and writes a short digest per category.
 See the site here: https://www.dailyainewsbriefing.com/
 
-**Status:** the pipeline stages below are implemented and tested, and a read-only React dashboard (`v2/`, hosted on Azure Static Web Apps) displays their results.
+**Status:** the pipeline stages below are implemented and tested, and a read-only React dashboard (`web/`, hosted on Azure Static Web Apps) displays their results.
 
 ## Architecture
 
@@ -20,7 +20,7 @@ flowchart LR
 
     LLM["llm.py<br/>(the only code that talks to OpenAI)"]
     DB[("SQLite · ainews.db<br/>shared persistence layer")]
-    UI["React dashboard<br/>(v2/, read-only)"]
+    UI["React dashboard<br/>(web/, read-only)"]
 
     RSS --> ING
     WEB --> EXT
@@ -77,7 +77,7 @@ flowchart LR
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
 | `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (ElevenLabs, voice `1KW5b0DZhKA18MyNj4Kb`, model `eleven_multilingual_v2`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
-| `python -m v2.server` | the newest fully processed story run, its digests, its articles' URLs, and `audio/*.mp3` | serves them to the React dashboard as JSON, on localhost; with `--snapshot PATH`, writes that JSON to a file instead (how the deployed site gets its data); runs nothing | nothing (read-only connection); the snapshot file with `--snapshot` | no |
+| `python -m web.server` | the newest fully processed story run, its digests, its articles' URLs, and `audio/*.mp3` | serves them to the React dashboard as JSON, on localhost; with `--snapshot PATH`, writes that JSON to a file instead (how the deployed site gets its data); runs nothing | nothing (read-only connection); the snapshot file with `--snapshot` | no |
 
 ## Stage details
 
@@ -91,7 +91,7 @@ flowchart LR
 
 **digest** (`digest.py`). Works from a story run (latest, or `--run`) and **refuses to run if any story has no ready summary**. Each category with stories gets one digest made from its *stories*: a short headline (asked to be 6 to 12 words, engaging but strictly factual) and a summary, from the same call and stored together. An invalid headline fails the digest like an invalid summary, and it is retried on the next run. The model receives the category's story count, the total non-Spam count, and the other categories' counts as context, but is told to synthesize developments rather than repeat numbers; the dashboard works out the counts it shows itself, from the stories (`story_count` and `total_story_count` are stored with the digest as a record). Categories with no stories get no digest.
 
-**dashboard** (`dashboard.py`, `v2/`). A read-only page: a header (last updated in Copenhagen time, the 24h window, story and article counts), a player for the full briefing, and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, the category's narration, and a collapsed "View N stories" list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `dashboard.py` builds what is shown from queries in `db.py`; `v2/server.py` turns that into JSON with no SQL, pipeline or provider code, and the React app (`v2/src/`) only renders the JSON. The same JSON comes from the local server during development and from a static snapshot in production (see Deployment).
+**dashboard** (`dashboard.py`, `web/`). A read-only page: a header (last updated in Copenhagen time, the 24h window, story and article counts), a player for the full briefing, and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, the category's narration, and a collapsed "View N stories" list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `dashboard.py` builds what is shown from queries in `db.py`; `web/server.py` turns that into JSON with no SQL, pipeline or provider code, and the React app (`web/src/`) only renders the JSON. The same JSON comes from the local server during development and from a static snapshot in production (see Deployment).
 
 **narrate** (`narrate.py`). Every non-Spam category that has stories today gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to ElevenLabs (model `eleven_multilingual_v2`, voice `1KW5b0DZhKA18MyNj4Kb`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no stories is skipped; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
 
@@ -130,7 +130,7 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 - **`feeds.toml`**: one `[[feeds]]` table per source, with `name`, `url`, `strategy` (`feed_content` or `fulltext`, required) and optional `stop_markers` and `request_delay_seconds` (both `fulltext` only; OpenAI waits 1 second between page requests, because its pages intermittently return a Cloudflare 403). Feeds whose own text is complete, such as Simon Willison's, use `feed_content`; the rest use `fulltext`.
 - **`.env`**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard's server use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso, read-only is enforced by the token, not by the code: the deploy's snapshot step currently reuses the pipeline's `TURSO_AUTH_TOKEN` secret, so a separate read-only token for it would be safer. The two databases are independent; nothing syncs them.
-- **`v2/`**: the React dashboard (Vite, TypeScript, Tailwind CSS, shadcn/ui). In development, `vite.config.ts` proxies `/dashboard.json` and `/audio` to `v2/server.py` on `localhost:8000`.
+- **`web/`**: the React dashboard (Vite, TypeScript, Tailwind CSS, shadcn/ui). In development, `vite.config.ts` proxies `/dashboard.json` and `/audio` to `web/server.py` on `localhost:8000`.
 - **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v4`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
@@ -148,18 +148,18 @@ python -m ainews cluster
 python -m ainews digest
 python -m ainews narrate             # one briefing script + MP3 per category with stories, audio/<category>.mp3
 
-python -m v2.server                  # the dashboard's data and audio, on localhost:8000 (read-only)
-cd v2 && npm install && npm run dev  # in a second terminal: the dashboard, on http://localhost:5173
+python -m web.server                  # the dashboard's data and audio, on localhost:8000 (read-only)
+cd web && npm install && npm run dev  # in a second terminal: the dashboard, on http://localhost:5173
 
 python -m ainews inspect-feed <feed-url> --samples 3   # evaluate a new source
 pytest                                                 # offline; uses fakes, never the real API
 ```
 
-Both dashboard commands run from the project folder. The server reads the local `ainews.db`; to show the hosted data instead, set `AINEWS_BACKEND=turso` in that terminal first (PowerShell: `$env:AINEWS_BACKEND = "turso"`). `cd v2 && npm run typecheck && npm run lint && npm run build` checks the frontend.
+Both dashboard commands run from the project folder. The server reads the local `ainews.db`; to show the hosted data instead, set `AINEWS_BACKEND=turso` in that terminal first (PowerShell: `$env:AINEWS_BACKEND = "turso"`). `cd web && npm run typecheck && npm run lint && npm run build` checks the frontend.
 
 ## Deployment
 
-GitHub Actions (`.github/workflows/main.yml`) runs the whole pipeline daily against the
+GitHub Actions (`.github/workflows/daily-ai-news.yml`) runs the whole pipeline daily against the
 hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, digest,
 then narrate. No `continue-on-error` is needed for narrate: an isolated per-category
 script or TTS failure already exits `0` and is reported, rather than stopping the rest
@@ -171,15 +171,15 @@ the `github-actions[bot]` identity, using the workflow's own `GITHUB_TOKEN` (nee
 changed (all TTS calls failed, say).
 
 The dashboard is a static site on Azure Static Web Apps
-(`.github/workflows/azure-static-web-apps-jolly-plant-02c93590f.yml`), at
+(`.github/workflows/deploy-azure.yml`), at
 https://www.dailyainewsbriefing.com/ (the Azure default address is
 https://jolly-plant-02c93590f.3.azurestaticapps.net). There is no server in production.
-Each deploy installs the project, runs `python -m v2.server --snapshot
-v2/public/dashboard.json` against Turso (with `AINEWS_BACKEND=turso` and the `TURSO_*`
-repository secrets), and copies the committed `audio/*.mp3` into `v2/public/audio/`;
-Azure then builds `v2/` (`npm run build`) and publishes `v2/dist`. The page loads
+Each deploy installs the project, runs `python -m web.server --snapshot
+web/public/dashboard.json` against Turso (with `AINEWS_BACKEND=turso` and the `TURSO_*`
+repository secrets), and copies the committed `audio/*.mp3` into `web/public/audio/`;
+Azure then builds `web/` (`npm run build`) and publishes `web/dist`. The page loads
 `/dashboard.json` and `/audio/*.mp3` the same way in production (static files) as
-locally (proxied to `v2/server.py`). If there is no fully processed run, the snapshot
+locally (proxied to `web/server.py`). If there is no fully processed run, the snapshot
 step fails, so the deploy fails and the previous site stays up instead of an empty page.
 
 The site deploys on every push to `main`, and after every daily pipeline run: the
@@ -187,7 +187,7 @@ pipeline's own audio commit is pushed with its `GITHUB_TOKEN`, which by design c
 start other workflows, so the deploy also runs on a `workflow_run` trigger when "Daily AI
 News" finishes. Pull requests get a preview environment, removed when the PR closes.
 Every Python dependency installs from `pyproject.toml` with `pip install -e .`, in both
-workflows and locally; the dashboard's JavaScript dependencies are in `v2/package.json`.
+workflows and locally; the dashboard's JavaScript dependencies are in `web/package.json`.
 
 One tradeoff worth knowing: this keeps every day's audio in git history forever, which
 grows the repo indefinitely. Not addressed here (squashing history or moving to real
@@ -210,7 +210,7 @@ ainews/
   inspect_feed.py onboarding tool
   dashboard.py    what the dashboard shows (no SQL, no web framework)
   defaults.py     default model, audio_path(category) (no imports)
-v2/               the React dashboard (Vite + shadcn/ui), deployed to Azure Static Web Apps
+web/              the React dashboard (Vite + shadcn/ui), deployed to Azure Static Web Apps
   server.py       read-only JSON + audio server for local development; --snapshot writes the deploy's data
   src/            the page (App.tsx) and its Windows 98-style components
 Deprecated/       replaced provider implementations kept for reference; nothing imports them

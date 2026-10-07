@@ -1,7 +1,7 @@
-"""Read-only JSON + audio server for the V2 (React) dashboard.
+"""Read-only JSON + audio server for the web dashboard.
 
-Run from the project root:  python -m v2.server
-Or, for the deployed site:  python -m v2.server --snapshot v2/public/dashboard.json
+Run from the project root:  python -m web.server
+Or, for the deployed site:  python -m web.server --snapshot web/public/dashboard.json
 
 A thin layer over ainews.dashboard: no SQL, no pipeline code and no provider code, so
 it can't run a stage or call an LLM/TTS provider (a test enforces it). It serves exactly
@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 
 from ainews import dashboard
 
-PORT = 8000  # v2/vite.config.ts proxies /dashboard.json and /audio here
+PORT = 8000  # web/vite.config.ts proxies /dashboard.json and /audio here
 
 
 def _audio_url(path: Path | None) -> str | None:
@@ -132,5 +132,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.snapshot:
         sys.exit(write_snapshot(args.snapshot))
-    print(f"V2 API on http://localhost:{PORT} (read-only). Ctrl+C to stop.")
+    print(f"Dashboard data server on http://localhost:{PORT} (read-only). Ctrl+C to stop.")
     ThreadingHTTPServer(("localhost", PORT), Handler).serve_forever()

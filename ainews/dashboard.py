@@ -1,6 +1,6 @@
 """What the read-only dashboard shows, worked out from SQLite (and the source names in feeds.toml).
 
-The React dashboard only renders what this module returns: v2/server.py turns it into
+The React dashboard only renders what this module returns: web/server.py turns it into
 JSON (served locally, or written as the deployed site's static snapshot). There is no
 SQL here (see db.py) and no web framework, so the logic can be tested without a
 browser. This module

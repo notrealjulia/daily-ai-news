@@ -1,0 +1,314 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+/* MS W98 UI: a conversion of MS Sans Serif, the Windows 95/98 interface font
+   (https://github.com/MARTYR-X-LTD/ms-w98-ui, Web-TT files). The repo carries no license
+   and the design is Microsoft's, so settle that before these files are committed or deployed. */
+@font-face {
+  font-family: "MS W98 UI";
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/MSW98UI-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "MS W98 UI";
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/MSW98UI-Bold.woff2") format("woff2");
+}
+
+/* Pixel Operator (https://www.dafont.com/pixel-operator.font, by Jayvee Enaguas): CC0,
+   no restrictions. Drawn on a 16px grid. */
+@font-face {
+  font-family: "Pixel Operator";
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/PixelOperator.ttf") format("truetype");
+}
+@font-face {
+  font-family: "Pixel Operator";
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/PixelOperator-Bold.ttf") format("truetype");
+}
+
+/* There is no dark theme: nothing ever sets .dark, so this keeps any `dark:` classes in
+   shadcn components inert (Tailwind's default would follow the OS setting instead). */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-pastel-lavender: var(--pastel-lavender);
+  --color-pastel-pink: var(--pastel-pink);
+  --color-window: var(--window);
+  --color-pastel-blue: var(--pastel-blue);
+  --color-pastel-mint: var(--pastel-mint);
+  --color-pastel-cream: var(--pastel-cream);
+  --color-muted-purple: var(--muted-purple);
+  /* Two voices. In each stack, everything after the first font is only a fallback for
+       a missing glyph or a font file that fails to load.
+       Sans (the default): page title, category names, headlines and story titles in
+       bold; digests, story summaries and other longer text at 16px.
+       UI: metadata, labels, source lines, at 11px only (its bitmap grid). */
+  --font-heading: var(--font-sans);
+  --font-sans: "Pixel Operator", "Geist Variable", sans-serif;
+  --font-ui:
+    "MS W98 UI", Tahoma, "Microsoft Sans Serif", Geneva, Verdana, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Pastel Windows 98 palette: one light theme, so there is no .dark block. The five
+   named colors are the system; the semantic tokens below are all derived from them. */
+:root {
+  --pastel-lavender: oklch(0.86 0.06 300);
+  --pastel-pink: oklch(0.89 0.06 350);
+  --pastel-blue: oklch(0.88 0.05 235);
+  --pastel-mint: oklch(0.91 0.06 165);
+  --pastel-cream: oklch(0.975 0.02 90);
+  --muted-purple: oklch(0.42 0.12 295);
+  --ink: oklch(0.24 0.06 290);
+
+  /* Windows 98 chrome, in pastels. --window is the face of a window or button (where
+       the original used grey); the four bevel colors run from the lit top-left edge to
+       the shadowed bottom-right one. */
+  --window: oklch(0.93 0.03 300);
+  --bevel-highlight: var(--pastel-cream);
+  --bevel-light: oklch(0.96 0.02 300);
+  --bevel-shade: oklch(0.72 0.07 300);
+  --bevel-dark: var(--muted-purple);
+
+  --background: var(--pastel-lavender);
+  --foreground: var(--ink);
+  --card: var(--pastel-cream);
+  --card-foreground: var(--ink);
+  --popover: var(--pastel-cream);
+  --popover-foreground: var(--ink);
+  --primary: var(--muted-purple);
+  --primary-foreground: var(--pastel-cream);
+  --secondary: var(--pastel-blue);
+  --secondary-foreground: var(--ink);
+  --muted: oklch(0.92 0.03 300);
+  --muted-foreground: oklch(0.4 0.05 290);
+  --accent: var(--pastel-mint);
+  --accent-foreground: var(--ink);
+  --destructive: oklch(0.5 0.2 15);
+  --border: oklch(0.72 0.07 300);
+  --input: oklch(0.72 0.07 300);
+  --ring: var(--muted-purple);
+  --chart-1: var(--pastel-pink);
+  --chart-2: var(--pastel-blue);
+  --chart-3: var(--pastel-mint);
+  --chart-4: var(--pastel-lavender);
+  --chart-5: var(--muted-purple);
+  --radius: 0.625rem;
+  --sidebar: var(--pastel-cream);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--muted-purple);
+  --sidebar-primary-foreground: var(--pastel-cream);
+  --sidebar-accent: var(--pastel-mint);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: oklch(0.72 0.07 300);
+  --sidebar-ring: var(--muted-purple);
+}
+
+/* The raised 3D edge of a Windows 98 window or button: two 1px hard-edged lines per side. */
+@utility bevel-raised {
+  box-shadow:
+    inset -1px -1px var(--bevel-dark),
+    inset 1px 1px var(--bevel-light),
+    inset -2px -2px var(--bevel-shade),
+    inset 2px 2px var(--bevel-highlight);
+}
+
+/* The opposite: a field pressed into the surface (progress bars, status bars, a button
+   while it is held down). */
+@utility bevel-sunken {
+  box-shadow:
+    inset -1px -1px var(--bevel-highlight),
+    inset 1px 1px var(--bevel-shade),
+    inset -2px -2px var(--bevel-light),
+    inset 2px 2px var(--bevel-dark);
+}
+
+/* A Windows 98 vertical scrollbar for a scrolling pane: dithered track, raised thumb, and
+   an arrow button at each end. Chrome, Edge and Safari only; Firefox has no way to draw
+   scrollbar buttons, so it keeps its own scrollbar in the palette's colors. The arrows
+   are images, which can't read CSS variables: %23251d3f is --ink. */
+@utility scrollbar-win98 {
+  &::-webkit-scrollbar {
+    width: 16px;
+  }
+  &::-webkit-scrollbar-track {
+    background: repeating-conic-gradient(
+        var(--window) 0 25%,
+        var(--bevel-highlight) 0 50%
+      )
+      0 0 / 2px 2px;
+  }
+  &::-webkit-scrollbar-thumb,
+  &::-webkit-scrollbar-button:single-button {
+    background-color: var(--window);
+    box-shadow:
+      inset -1px -1px var(--bevel-dark),
+      inset 1px 1px var(--bevel-light),
+      inset -2px -2px var(--bevel-shade),
+      inset 2px 2px var(--bevel-highlight);
+  }
+  &::-webkit-scrollbar-button:single-button {
+    display: block;
+    height: 16px;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  &::-webkit-scrollbar-button:single-button:vertical:decrement {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4' shape-rendering='crispEdges'%3E%3Cpath fill='%23251d3f' d='M0 4h7V3H6V2H5V1H4V0H3v1H2v1H1v1H0z'/%3E%3C/svg%3E");
+  }
+  &::-webkit-scrollbar-button:single-button:vertical:increment {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4' shape-rendering='crispEdges'%3E%3Cpath fill='%23251d3f' d='M0 0h7v1H6v1H5v1H4v1H3V3H2V2H1V1H0z'/%3E%3C/svg%3E");
+  }
+  &::-webkit-scrollbar-button:single-button:active {
+    box-shadow:
+      inset -1px -1px var(--bevel-highlight),
+      inset 1px 1px var(--bevel-shade),
+      inset -2px -2px var(--bevel-light),
+      inset 2px 2px var(--bevel-dark);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-color: var(--bevel-shade) var(--window);
+  }
+}
+
+/* The background sparkles (components/sparkles.tsx). Each star has three frames - dot,
+   cross, sparkle - and shows exactly one at a time. Still: its rest frame. Animated: a
+   dot for most of the cycle, then cross, sparkle, cross, dot, each frame snapping in
+   (step-end) like a 90s sprite. Every star sets its own duration and delay. */
+.pixel-star > * {
+  visibility: hidden;
+}
+.pixel-star > [data-rest] {
+  visibility: visible;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pixel-star > * {
+    animation: var(--sparkle-duration) step-end var(--sparkle-delay) infinite;
+  }
+  .pixel-star > .dot {
+    animation-name: sparkle-dot;
+  }
+  .pixel-star > .cross {
+    animation-name: sparkle-cross;
+  }
+  .pixel-star > .sparkle {
+    animation-name: sparkle-sparkle;
+  }
+}
+@keyframes sparkle-dot {
+  0% {
+    visibility: visible;
+  }
+  80% {
+    visibility: hidden;
+  }
+  94%,
+  100% {
+    visibility: visible;
+  }
+}
+@keyframes sparkle-cross {
+  0% {
+    visibility: hidden;
+  }
+  80% {
+    visibility: visible;
+  }
+  84% {
+    visibility: hidden;
+  }
+  90% {
+    visibility: visible;
+  }
+  94%,
+  100% {
+    visibility: hidden;
+  }
+}
+@keyframes sparkle-sparkle {
+  0% {
+    visibility: hidden;
+  }
+  84% {
+    visibility: visible;
+  }
+  90%,
+  100% {
+    visibility: hidden;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* The desktop: lavender fading to pink, under a faint cream grid. */
+    background-image:
+      linear-gradient(
+        to right,
+        oklch(from var(--pastel-cream) l c h / 25%) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        oklch(from var(--pastel-cream) l c h / 25%) 1px,
+        transparent 1px
+      ),
+      linear-gradient(to bottom, var(--pastel-lavender), var(--pastel-pink));
+    background-size:
+      32px 32px,
+      32px 32px,
+      100% 100%;
+    background-attachment: fixed;
+  }
+  html {
+    @apply font-sans;
+  }
+}

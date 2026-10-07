@@ -28,6 +28,6 @@ testpaths = ["tests"]
 pythonpath = ["."]  # lets `pytest` import ainews without installing the package
 
 [tool.setuptools]
-# Explicit, because v2/, tests/ and Deprecated/ sit next to the package and would
+# Explicit, because web/, tests/ and Deprecated/ sit next to the package and would
 # otherwise confuse setuptools' automatic discovery.
 packages = ["ainews"]
