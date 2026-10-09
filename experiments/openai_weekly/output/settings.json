@@ -1,0 +1,35 @@
+{
+ "company": "OpenAI",
+ "title": "OpenAI This Week",
+ "days": 7,
+ "queries": [
+  "OpenAI news: an announcement, product launch or company development at OpenAI",
+  "OpenAI releases a new GPT model or updates ChatGPT",
+  "Sam Altman and OpenAI leadership, funding, valuation, partnerships or lawsuits",
+  "OpenAI research, safety policy, or deals with Microsoft and other companies"
+ ],
+ "semantic_threshold": 0.5,
+ "weak_keyword_threshold": 0.4,
+ "strong_entities": [
+  "OpenAI",
+  "ChatGPT",
+  "GPT model",
+  "gpt-oss",
+  "DALL-E",
+  "Sam Altman",
+  "Greg Brockman",
+  "Fidji Simo",
+  "Jakub Pachocki"
+ ],
+ "weak_entities": [
+  "Sora",
+  "Codex",
+  "o-series model",
+  "Whisper",
+  "Operator",
+  "Atlas",
+  "Stargate"
+ ],
+ "judge_version": "j1",
+ "audit_count": 15
+}
