@@ -11,6 +11,16 @@ export default defineConfig({
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
+  // Two pages: the daily briefing (/) and the model release timeline (/timeline.html),
+  // each its own HTML file in dist, so both work when opened directly.
+  build: {
+    rolldownOptions: {
+      input: {
+        main: resolve(import.meta.dirname, "index.html"),
+        timeline: resolve(import.meta.dirname, "timeline.html"),
+      },
+    },
+  },
   // Locally, the data and the narration MP3s come from the read-only Python server
   // (server.py). The deployed build has static copies of both instead (see server.py).
   server: {

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/collapsible"
 import { Sparkles } from "@/components/sparkles"
 import { Win98Audio } from "@/components/win98-audio"
+import { Win98LinkButton } from "@/components/win98-link-button"
 import { Win98Window } from "@/components/win98-window"
 
 // The shape of /dashboard.json (see web/server.py). All the text is worked out in Python,
@@ -150,6 +151,12 @@ export function App() {
               {data.header}
             </p>
           )}
+          <Win98LinkButton
+            href="/timeline.html"
+            className="ml-auto self-center"
+          >
+            Model Timeline →
+          </Win98LinkButton>
         </header>
 
         {failed && (
