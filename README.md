@@ -47,14 +47,14 @@ flowchart LR
 
     ING["ingest<br/>RSS → article rows<br/>24h window, URL dedup"]
     EXT["extract<br/>article → clean body<br/>fulltext or feed_content"]
-    ENR["enrich<br/>body → category + summary<br/>+ English title if needed"]
+    ENR["enrich<br/>body → category + summary<br/>+ English title if needed<br/>+ released models"]
     CLU["cluster<br/>non-Spam articles → stories<br/>combined summary if 2+ articles"]
     DIG["digest<br/>stories → one digest per category"]
     UI["React dashboard<br/>read-only"]
 
     ART1[("articles<br/>metadata · feed_text")]
     ART2[("articles<br/>+ body")]
-    ENRT[("enrichments<br/>category · summary · english_title")]
+    ENRT[("enrichments<br/>category · summary · english_title · released_models")]
     STO[("story_runs · stories<br/>story_articles link back to articles")]
     DGT[("digests<br/>headline · summary")]
 
@@ -73,7 +73,7 @@ flowchart LR
 | `inspect-feed URL` | a feed URL and sample article pages | reports feed-wide text stats, feed text vs extracted page text (start and end), and cleanup hints; **decides nothing** | nothing (only files, if `--save-dir` is given) | no |
 | `ingest` | `feeds.toml`, the feeds | keeps entries from the last 24h (UTC), dedups by URL | `articles` (metadata, `feed_text`, `body_status = pending`) | no |
 | `extract` | `articles` in the 24h window without a ready body, `feeds.toml` | per feed: `fulltext` (fetch page, Trafilatura) or `feed_content` (use `feed_text`); cleans the text | `articles.body`, `body_status`, `body_error` | no |
-| `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English | `enrichments` | yes |
+| `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English + the foundation models whose release it announces | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
 | `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
 | `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (ElevenLabs, voice `1KW5b0DZhKA18MyNj4Kb`, model `eleven_multilingual_v2`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
@@ -85,7 +85,7 @@ flowchart LR
 
 **extract** (`extract.py`). The strategy is set per feed in `feeds.toml`. With `fulltext`, a failed fetch or extraction never falls back to the feed's teaser: the article simply has no body and is retried on the next run, as long as it is still within the 24h window (some sites intermittently refuse requests; a feed can set `request_delay_seconds` to pause between its page requests, which spaces requests out but doesn't change retrying). Like enrich and cluster, extract only looks at articles from the last 24h, so a persistently failing article is retried while it's recent and then simply left alone, never forever. Cleanup drops the headline if it repeats as the first paragraph and cuts the text at a per-feed `stop_markers` paragraph (a site's subscription block, say). Articles with a ready body are never fetched again.
 
-**enrich** (`enrich.py`). Body text (capped at 24,000 characters) goes to the LLM with a strict JSON schema; the answer is `category` (one of seven, including `Spam`), `summary`, and `english_title`: an English translation of the title, or null when the title is already English (so an English title is never rewritten). The answer is validated, never repaired. The article's own `title` is never changed; the translation lives only in `enrichments`. One row per `(article, model, prompt_version)`. Only articles in the 24h window are considered, the same window cluster uses; an article that ages out is never enriched, whatever its body status. Failures store nothing.
+**enrich** (`enrich.py`). Body text (capped at 24,000 characters) goes to the LLM with a strict JSON schema; the answer is `category` (one of seven, including `Spam`), `summary`, and `english_title`: an English translation of the title, or null when the title is already English (so an English title is never rewritten); and `released_models`: the names of the foundation models whose release or significant update the article announces, usually an empty list. `python -m ainews releases` lists them read-only, one row per model, with whether each is already in the AI Timeline CSV (`web/src/data/ai_releases.csv`); adding one to the timeline stays a manual step. The answer is validated, never repaired. The article's own `title` is never changed; the translation lives only in `enrichments`. One row per `(article, model, prompt_version)`. Only articles in the 24h window are considered, the same window cluster uses; an article that ages out is never enriched, whatever its body status. Failures store nothing.
 
 **cluster** (`stories.py`). Input is the last 24h (`published_at`, else `fetched_at`) of articles enriched under the current model and prompt, minus Spam. One call groups them from **title and summary only** (the model isn't shown categories, and category equality isn't required); it returns only groups of two or more, so anything unmentioned is its own story and uncertainty defaults to "separate". Single-article stories copy their article's category and summary; each multi-article story gets one more call for a combined summary and category. The result is an immutable **story run**; an unchanged input finds the existing run instead of regrouping, and failed story summaries are retried without regrouping.
 
@@ -102,7 +102,7 @@ flowchart LR
 | Table | Holds | Key constraints |
 |---|---|---|
 | `articles` | feed metadata, `feed_text` (what the feed carried), `body` (text used downstream) | `url` unique; `body_status`: pending / ready / failed |
-| `enrichments` | `category`, `summary`, `english_title` (NULL: already English, or enriched before this existed), `model`, `prompt_version` per article | unique `(article, model, prompt_version)` |
+| `enrichments` | `category`, `summary`, `english_title` (NULL: already English, or enriched before this existed), `released_models` (a JSON array; NULL: none, or enriched before this existed), `model`, `prompt_version` per article | unique `(article, model, prompt_version)` |
 | `story_runs` | one clustering snapshot: models, versions, window, input fingerprint | unique on models, versions and input fingerprint |
 | `stories` | a story's `category`, `summary`, `summary_status`, `grouping_reason` | belongs to a run |
 | `story_articles` | which articles form each story | unique `(run, article)`: an article is in one story per run |
@@ -131,7 +131,7 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 - **`.env`**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard's server use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso, read-only is enforced by the token, not by the code: the deploy's snapshot step currently reuses the pipeline's `TURSO_AUTH_TOKEN` secret, so a separate read-only token for it would be safer. The two databases are independent; nothing syncs them.
 - **`web/`**: the React dashboard (Vite, TypeScript, Tailwind CSS, shadcn/ui). In development, `vite.config.ts` proxies `/dashboard.json` and `/audio` to `web/server.py` on `localhost:8000`.
-- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v4`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
+- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v6`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
@@ -147,6 +147,7 @@ python -m ainews enrich              # --limit N to cap a run
 python -m ainews cluster
 python -m ainews digest
 python -m ainews narrate             # one briefing script + MP3 per category with stories, audio/<category>.mp3
+python -m ainews releases           # read-only: detected model releases vs. the AI Timeline CSV (--since YYYY-MM-DD)
 
 python -m web.server                  # the dashboard's data and audio, on localhost:8000 (read-only)
 cd web && npm install && npm run dev  # in a second terminal: the dashboard, on http://localhost:5173
@@ -201,7 +202,7 @@ ainews/
   db.py           schema, migrations, all SQL
   ingest.py       RSS -> articles
   extract.py      article bodies (fulltext / feed_content)
-  enrich.py       category, summary and English title per article
+  enrich.py       category, summary, English title and released models per article
   stories.py      story clustering
   digest.py       per-category digests
   llm.py          the only provider code (OpenAI structured JSON calls, ElevenLabs text-to-speech)

@@ -1,10 +1,12 @@
-"""Command line entry point: `python -m ainews ingest | extract | enrich | narrate | inspect-feed`."""
+"""Command line entry point: `python -m ainews ingest | extract | enrich | narrate | releases | inspect-feed`."""
 
 import argparse
+import csv
+import re
 import sqlite3
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -186,8 +188,52 @@ def _positive_int(text: str) -> int:
 def _format_enrich_outcome(o: "enrich.Outcome") -> str:
     title = o.title if len(o.title) <= 50 else o.title[:49] + "…"
     if o.ok:
-        return f"  {'ok':<7} {o.category:<19} {o.source[:16]:<16}  {title}"
+        models = f"  model: {', '.join(o.released_models)}" if o.released_models else ""
+        return f"  {'ok':<7} {o.category:<19} {o.source[:16]:<16}  {title}{models}"
     return f"  {'FAILED':<7} {o.source[:16]:<16}  {title}  -  {o.error}"
+
+
+DEFAULT_TIMELINE_CSV = Path("web/src/data/ai_releases.csv")
+
+
+def _model_key(name: str) -> str:
+    """A model name for matching: case, spaces and punctuation ignored ("DeepSeek V4.1" = "deepseek-v4.1")."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _timeline_model_keys(path: Path) -> set[str]:
+    """The AI Timeline's release names, as _model_key()s. A combined row ("GPT-6 Sol / GPT-6
+    Luna") counts as each of its names."""
+    # ponytail: exact name match only; "Gemini 4 Argon" won't match "Argon", review flags by eye
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return {
+            _model_key(part)
+            for row in csv.DictReader(f)
+            for part in row["Release name"].split(" / ")
+        }
+
+
+def cmd_releases(args: argparse.Namespace) -> int:
+    """List the model releases enrich detected, one row per model. Never writes anything."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    try:
+        in_timeline = _timeline_model_keys(args.csv)
+    except (OSError, KeyError) as e:
+        print(f"Cannot read the timeline CSV {args.csv}: {e}")
+        return 2
+    since = args.since or (datetime.now(timezone.utc) - timedelta(days=7)).date()
+    conn = db.connect_readonly(args.db)
+    found = db.released_models_since(conn, datetime.combine(since, datetime.min.time(), timezone.utc))
+    conn.close()
+
+    print(f"Model releases detected in articles since {since.isoformat()}: {len(found)}\n")
+    if found:
+        print(f"  {'DATE':<10}  {'MODEL':<32}  {'SOURCE':<16}  {'IN CSV':<6}  URL")
+    for r in found:
+        known = "yes" if _model_key(r["model"]) in in_timeline else "no"
+        print(f"  {r['date'][:10]:<10}  {r['model']:<32}  {r['source'][:16]:<16}  {known:<6}  {r['url']}")
+    return 0
 
 
 def _format_enrichment_summary(s: "enrich.EnrichmentSummary") -> list[str]:
@@ -545,6 +591,21 @@ def main(argv: list[str] | None = None) -> int:
         "--model", default=None, help="OpenAI model id for the scripts (default: the one set in ainews/llm.py)"
     )
     narrate_parser.set_defaults(func=cmd_narrate)
+
+    releases_parser = subcommands.add_parser(
+        "releases",
+        help="list the foundation model releases enrich detected (read-only)",
+        description="List every model release that enrich found in recent articles, one row "
+        "per model, with the article's date, source and URL, and whether the model is "
+        "already in the AI Timeline CSV. Reads the database strictly read-only.",
+    )
+    releases_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    releases_parser.add_argument(
+        "--since", type=date.fromisoformat, default=None, metavar="YYYY-MM-DD",
+        help="articles from this date on, UTC (default: the last 7 days)",
+    )  # fmt: skip
+    releases_parser.add_argument("--csv", type=Path, default=DEFAULT_TIMELINE_CSV, help="the AI Timeline CSV")
+    releases_parser.set_defaults(func=cmd_releases)
 
     inspect_parser = subcommands.add_parser(
         "inspect-feed",

@@ -1,9 +1,10 @@
 """AI enrichment: classify and summarize every article that has a ready body.
 
-For each article the LLM returns exactly three things: a category from a fixed list, a
-short summary, and an English version of the title if the title is not English (else
-null). Results are stored in `enrichments`, separate from the article, with the model
-and prompt_version that produced them. The article's own title is never changed.
+For each article the LLM returns exactly four things: a category from a fixed list, a
+short summary, an English version of the title if the title is not English (else null),
+and the names of any foundation models whose release the article announces (usually
+none; see `python -m ainews releases`). Results are stored in `enrichments`, separate
+from the article, with the model and prompt_version that produced them. The article's own title is never changed.
 
     - An article is enriched once per (model, prompt_version). Change either and the
       article becomes eligible again, alongside the old result.
@@ -38,6 +39,9 @@ MAX_BODY_CHARS = 24_000
 MAX_SUMMARY_CHARS = 1200
 # A sanity cap on an English title; a headline never needs this many characters.
 MAX_TITLE_CHARS = 250
+# Sanity caps on released_models: no article announces this many models, or a name this long.
+MAX_RELEASED_MODELS = 10
+MAX_MODEL_NAME_CHARS = 120
 
 SCHEMA_NAME = "article_enrichment"
 
@@ -49,8 +53,9 @@ SCHEMA = {
         "category": {"type": "string", "enum": list(CATEGORIES)},
         "summary": {"type": "string"},
         "english_title": {"type": ["string", "null"]},
+        "released_models": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["category", "summary", "english_title"],
+    "required": ["category", "summary", "english_title", "released_models"],
     "additionalProperties": False,
 }
 
@@ -75,6 +80,7 @@ class Enrichment:
     category: str
     summary: str
     english_title: str | None  # None: the title was already English
+    released_models: tuple[str, ...] = ()  # models whose release the article announces
 
 
 def parse_category_and_summary(raw: dict) -> tuple[str, str]:
@@ -92,8 +98,10 @@ def parse_category_and_summary(raw: dict) -> tuple[str, str]:
 
 def parse_enrichment(raw: dict) -> Enrichment:
     """Validate the LLM's answer strictly; nothing is corrected or guessed."""
-    if set(raw) != {"category", "summary", "english_title"}:
-        raise InvalidOutput(f"expected exactly category, summary and english_title, got {sorted(raw)}")
+    if set(raw) != {"category", "summary", "english_title", "released_models"}:
+        raise InvalidOutput(
+            f"expected exactly category, summary, english_title and released_models, got {sorted(raw)}"
+        )
     category, summary = parse_category_and_summary(raw)
     english_title = raw["english_title"]
     if english_title is not None:
@@ -104,7 +112,24 @@ def parse_enrichment(raw: dict) -> Enrichment:
             raise InvalidOutput("the english_title is not a single line")
         if len(english_title) > MAX_TITLE_CHARS:
             raise InvalidOutput(f"the english_title is {len(english_title):,} chars (limit {MAX_TITLE_CHARS:,})")
-    return Enrichment(category, summary, english_title)
+    return Enrichment(category, summary, english_title, parse_released_models(raw["released_models"]))
+
+
+def parse_released_models(names) -> tuple[str, ...]:
+    """Validate released_models: single-line, non-empty names; repeats are dropped, order kept."""
+    if not isinstance(names, list):
+        raise InvalidOutput("released_models is not a list")
+    if len(names) > MAX_RELEASED_MODELS:
+        raise InvalidOutput(f"released_models has {len(names)} names (limit {MAX_RELEASED_MODELS})")
+    if not all(isinstance(name, str) and name.strip() for name in names):
+        raise InvalidOutput("released_models has an empty name")
+    names = [name.strip() for name in names]
+    for name in names:
+        if len(name.splitlines()) > 1:  # \n, but also \r,   and the like
+            raise InvalidOutput("a released_models name is not a single line")
+        if len(name) > MAX_MODEL_NAME_CHARS:
+            raise InvalidOutput(f"a released_models name is {len(name):,} chars (limit {MAX_MODEL_NAME_CHARS})")
+    return tuple(dict.fromkeys(names))
 
 
 # --- The stage ---------------------------------------------------------------
@@ -118,6 +143,7 @@ class Outcome:
     ok: bool
     category: str | None  # when ok
     error: str | None  # when not ok
+    released_models: tuple[str, ...] = ()  # when ok
 
 
 @dataclass
@@ -185,6 +211,7 @@ def run_enrichment(
                 category=result.category,
                 summary=result.summary,
                 english_title=result.english_title,
+                released_models=result.released_models,
                 model=llm.model,
                 prompt_version=prompt_version,
                 created_at=now,
@@ -198,6 +225,7 @@ def run_enrichment(
             ok=result is not None,
             category=None if result is None else result.category,
             error=error,
+            released_models=() if result is None else result.released_models,
         )
         summary.outcomes.append(outcome)
         if report:

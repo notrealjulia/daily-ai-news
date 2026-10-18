@@ -13,7 +13,7 @@ from ainews import db, enrich, llm
 from ainews.__main__ import main
 
 NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
-GOOD = {"category": "Product Release", "summary": "A company released a product.", "english_title": None}
+GOOD = {"category": "Product Release", "summary": "A company released a product.", "english_title": None, "released_models": []}
 
 
 class FakeLLM:
@@ -106,8 +106,8 @@ def test_categories_prompt_and_schema_agree():
 
     schema = enrich.SCHEMA
     assert schema["properties"]["category"]["enum"] == list(enrich.CATEGORIES)
-    assert set(schema["properties"]) == {"category", "summary", "english_title"}  # exactly these
-    assert schema["required"] == ["category", "summary", "english_title"]
+    assert set(schema["properties"]) == {"category", "summary", "english_title", "released_models"}  # exactly these
+    assert schema["required"] == ["category", "summary", "english_title", "released_models"]
     assert schema["additionalProperties"] is False
 
 
@@ -158,8 +158,8 @@ def test_a_successful_enrichment_is_stored_separately_from_the_article(conn):
 def test_a_translated_title_is_stored_beside_the_article_and_an_english_one_is_left_alone(conn):
     danish, english = add_ready(conn, "Danske startups rejser rekordstor kapital"), add_ready(conn, "OpenAI ships a model")
     fake = FakeLLM(by_title(**{
-        "Danske startups rejser rekordstor kapital": {**GOOD, "english_title": "Danish startups raise record capital"},
-        "OpenAI ships a model": {**GOOD, "english_title": None},  # already English: the model says so
+        "Danske startups rejser rekordstor kapital": {**GOOD, "english_title": "Danish startups raise record capital", "released_models": []},
+        "OpenAI ships a model": {**GOOD, "english_title": None, "released_models": []},  # already English: the model says so
     }))
 
     run(conn, fake)
@@ -172,13 +172,30 @@ def test_a_translated_title_is_stored_beside_the_article_and_an_english_one_is_l
     assert "Title: Danske startups rejser rekordstor kapital\n" in fake.calls[0]["input_text"]
 
 
+# --- released models ---------------------------------------------------------
+
+
+def test_released_models_are_stored_as_a_json_list_and_none_as_null(conn):
+    release, other = add_ready(conn, "Nvidia ships two models"), add_ready(conn, "A funding round")
+    fake = FakeLLM(by_title(**{
+        "Nvidia ships two models": {**GOOD, "released_models": [" Nemotron 3.5 Super VL", "Nemotron 3.5 Bolt", "Nemotron 3.5 Bolt"]},
+        "A funding round": dict(GOOD),
+    }))
+
+    summary = run(conn, fake)
+
+    stored_models = {r["article_id"]: r["released_models"] for r in conn.execute("SELECT article_id, released_models FROM enrichments")}
+    assert stored_models == {release: '["Nemotron 3.5 Super VL", "Nemotron 3.5 Bolt"]', other: None}  # trimmed, repeat dropped
+    assert summary.outcomes[0].released_models == ("Nemotron 3.5 Super VL", "Nemotron 3.5 Bolt")
+
+
 # --- invalid output ----------------------------------------------------------
 
 
 def test_an_invalid_category_is_a_failure_and_nothing_is_stored(conn):
     add_ready(conn, "Anything")
 
-    summary = run(conn, FakeLLM(lambda _: {"category": "Models", "summary": "Fine.", "english_title": None}))
+    summary = run(conn, FakeLLM(lambda _: {"category": "Models", "summary": "Fine.", "english_title": None, "released_models": []}))
 
     assert stored(conn) == []
     (outcome,) = summary.failed
@@ -188,18 +205,30 @@ def test_an_invalid_category_is_a_failure_and_nothing_is_stored(conn):
 @pytest.mark.parametrize(
     ("answer", "message"),
     [
-        ({"category": "product release", "summary": "Fine.", "english_title": None}, "invalid category"),  # no fuzzy matching
-        ({"category": "Other", "summary": "", "english_title": None}, "summary is empty"),
-        ({"category": "Other", "summary": "x" * (enrich.MAX_SUMMARY_CHARS + 1), "english_title": None}, "limit"),
-        ({"category": "Other", "summary": "Fine."}, "expected exactly category, summary and english_title"),
-        ({"category": "Other", "summary": "Fine.", "english_title": None, "relevance": 9}, "expected exactly"),
-        ({"category": "Other", "summary": "Fine.", "english_title": "  "}, "english_title is empty"),
-        ({"category": "Other", "summary": "Fine.", "english_title": 7}, "english_title is empty"),
-        ({"category": "Other", "summary": "Fine.", "english_title": "Two\nlines"}, "not a single line"),
-        ({"category": "Other", "summary": "Fine.", "english_title": "x" * (enrich.MAX_TITLE_CHARS + 1)}, "chars (limit"),
+        ({"category": "product release", "summary": "Fine.", "english_title": None, "released_models": []}, "invalid category"),  # no fuzzy matching
+        ({"category": "Other", "summary": "", "english_title": None, "released_models": []}, "summary is empty"),
+        ({"category": "Other", "summary": "x" * (enrich.MAX_SUMMARY_CHARS + 1), "english_title": None, "released_models": []}, "limit"),
+        ({"category": "Other", "summary": "Fine.", "released_models": []}, "expected exactly category, summary, english_title and released_models"),
+        ({"category": "Other", "summary": "Fine.", "english_title": None}, "expected exactly"),
+        ({"category": "Other", "summary": "Fine.", "english_title": None, "relevance": 9, "released_models": []}, "expected exactly"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "  ", "released_models": []}, "english_title is empty"),
+        ({"category": "Other", "summary": "Fine.", "english_title": 7, "released_models": []}, "english_title is empty"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "Two\nlines", "released_models": []}, "not a single line"),
+        ({"category": "Other", "summary": "Fine.", "english_title": "x" * (enrich.MAX_TITLE_CHARS + 1), "released_models": []}, "chars (limit"),
+        ({**GOOD, "released_models": "GPT-7"}, "released_models is not a list"),
+        ({**GOOD, "released_models": ["GPT-7", " "]}, "released_models has an empty name"),
+        ({**GOOD, "released_models": [7]}, "released_models has an empty name"),
+        ({**GOOD, "released_models": ["GPT\n7"]}, "not a single line"),
+        ({**GOOD, "released_models": ["GPT\r7"]}, "not a single line"),
+        ({**GOOD, "released_models": ["x" * (enrich.MAX_MODEL_NAME_CHARS + 1)]}, "chars (limit"),
+        ({**GOOD, "released_models": ["m"] * (enrich.MAX_RELEASED_MODELS + 1)}, "names (limit"),
     ],
-    ids=["category-not-matched-fuzzily", "empty-summary", "summary-too-long", "missing-english-title", "extra-key",
-         "blank-english-title", "non-string-english-title", "multi-line-english-title", "runaway-english-title"],
+    ids=["category-not-matched-fuzzily", "empty-summary", "summary-too-long", "missing-english-title",
+         "missing-released-models", "extra-key", "blank-english-title", "non-string-english-title",
+         "multi-line-english-title", "runaway-english-title", "released-models-not-a-list",
+         "blank-model-name", "non-string-model-name", "multi-line-model-name", "carriage-return-model-name",
+         "runaway-model-name",
+         "too-many-models"],
 )
 def test_unacceptable_answers_are_rejected(conn, answer, message):
     add_ready(conn, "Anything")
@@ -230,7 +259,7 @@ def test_an_article_is_not_enriched_again_for_the_same_model_and_prompt(conn):
 def test_spam_is_accepted_and_stored(conn):
     add_ready(conn, "Prices go up in 7 days. Get your Disrupt ticket now")
 
-    run(conn, FakeLLM(lambda _: {"category": "Spam", "summary": "A promotion for conference tickets.", "english_title": None}))
+    run(conn, FakeLLM(lambda _: {"category": "Spam", "summary": "A promotion for conference tickets.", "english_title": None, "released_models": []}))
 
     assert stored(conn)[0][1] == "Spam"
 
@@ -245,7 +274,7 @@ def test_a_different_model_or_prompt_version_is_enriched_again_alongside_the_fir
 ):
     a = add_ready(conn, "One")
     run(conn, FakeLLM(model="model-a"))  # the first result, under the current prompt
-    second = FakeLLM(lambda _: {"category": "Research", "summary": "Other view.", "english_title": None}, model=second_model)
+    second = FakeLLM(lambda _: {"category": "Research", "summary": "Other view.", "english_title": None, "released_models": []}, model=second_model)
 
     run(conn, second, prompt_version=second_prompt)
 
@@ -264,7 +293,7 @@ def test_a_different_model_or_prompt_version_is_enriched_again_alongside_the_fir
     [
         (llm.LLMError("RateLimitError (HTTP 429): slow down"), "RateLimitError (HTTP 429): slow down"),
         (KeyError("boom"), "unexpected KeyError"),
-        ({"category": "Bogus", "summary": "x", "english_title": None}, "invalid output"),
+        ({"category": "Bogus", "summary": "x", "english_title": None, "released_models": []}, "invalid output"),
     ],
     ids=["llm-error", "unexpected-exception", "invalid-answer"],
 )
@@ -369,11 +398,13 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(c
     run(conn, FakeLLM(model="fake-model"))  # so one article is already enriched
     add_ready(conn, "Good one", published=recent)
     add_ready(conn, "Bad one", published=recent)
+    add_ready(conn, "Model launch", published=recent)
     add_without_body(conn, "No body yet", published=recent)
     fake = FakeLLM(
         by_title(
             **{
-                "Good one": {"category": "Research", "summary": "Fine.", "english_title": None},
+                "Good one": {"category": "Research", "summary": "Fine.", "english_title": None, "released_models": []},
+                "Model launch": {**GOOD, "released_models": ["GPT-7", "GPT-7 Mini"]},
                 "Bad one": llm.LLMError("RateLimitError (HTTP 429): slow down"),
             }
         )
@@ -384,11 +415,12 @@ def test_command_summary_shows_successes_failures_skips_and_retryable_failures(c
 
     assert code == 0  # a retryable per-article failure is not a stage failure
     assert "Model: fake-model" in out and f"prompt_version: {enrich.PROMPT_VERSION}" in out
-    assert "1 article(s) already enriched; 2 waiting; 1 without a ready body" in out
-    assert shows(out, r"\bok\s+Research\s+Src\s+Good one")
+    assert "1 article(s) already enriched; 3 waiting; 1 without a ready body" in out
+    assert shows(out, r"(?m)\bok\s+Research\s+Src\s+Good one$")  # no models: nothing appended
+    assert shows(out, r"\bok\s+Product Release\s+Src\s+Model launch  model: GPT-7, GPT-7 Mini")
     assert shows(out, r"FAILED\s+Src\s+Bad one.*RateLimitError \(HTTP 429\): slow down")
     assert shows(out, r"already enriched \(skipped\):\s+1\b")
-    assert shows(out, r"enriched this run:\s+1\s+\(Research 1\)")
+    assert shows(out, r"enriched this run:\s+2\s+\(Product Release 1, Research 1\)")
     assert shows(out, r"failed this run:\s+1\b")
     assert shows(out, r"no ready body yet:\s+1\s+\(run `python -m ainews extract`\)")
     assert "Retryable failures" in out and "python -m ainews enrich" in out
@@ -417,3 +449,42 @@ def test_command_without_an_api_key_stops_before_touching_anything(monkeypatch, 
     assert code == 2
     assert "Cannot enrich: OPENAI_API_KEY is not set" in capsys.readouterr().out
     assert not db_path.exists()
+
+
+# --- the releases command --------------------------------------------------------
+
+
+def test_releases_lists_one_row_per_model_and_whether_the_timeline_has_it(tmp_path, capsys):
+    db_path, csv_path = tmp_path / "t.db", tmp_path / "timeline.csv"
+    csv_path.write_text(
+        "﻿Company name,Release date,Release name,Notes,Link 1,Link 2,Link 3,Release type\r\n"
+        "OpenAI,2026-09-01,GPT-7 / GPT-7 Mini,,,,,Model release\r\n",
+        encoding="utf-8",
+    )
+    conn = db.connect(db_path)
+    add_ready(conn, "Two models", source="OpenAI", url="https://openai.com/gpt-7")
+    add_ready(conn, "No model", published=NOW - timedelta(hours=1))
+    add_ready(conn, "Too old", published=NOW - timedelta(days=3))
+    answers = {"Two models": {**GOOD, "released_models": ["gpt 7 mini", "GPT-8"]}, "No model": dict(GOOD),
+               "Too old": {**GOOD, "released_models": ["Old One"]}}  # fmt: skip
+    run(conn, FakeLLM(by_title(**answers)), now=NOW - timedelta(days=3))  # in the window then: all enriched
+    conn.close()
+    before = db_path.read_bytes()
+
+    code = main(["releases", "--db", str(db_path), "--csv", str(csv_path), "--since", "2026-09-19"])
+    out = capsys.readouterr().out
+
+    assert code == 0
+    assert "since 2026-09-19: 2" in out
+    assert shows(out, r"2026-09-20\s+gpt 7 mini\s+OpenAI\s+yes\s+https://openai.com/gpt-7")  # matched loosely
+    assert shows(out, r"2026-09-20\s+GPT-8\s+OpenAI\s+no\s+https://openai.com/gpt-7")
+    assert "Old One" not in out and "No model" not in out
+    assert db_path.read_bytes() == before  # read-only
+
+
+def test_releases_without_the_timeline_csv_stops(tmp_path, capsys):
+    code = main(["releases", "--db", str(tmp_path / "t.db"), "--csv", str(tmp_path / "missing.csv")])
+
+    assert code == 2
+    assert "Cannot read the timeline CSV" in capsys.readouterr().out
+

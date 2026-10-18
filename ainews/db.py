@@ -14,6 +14,7 @@ An article's text lives in two places on purpose:
 'failed' (the last attempt failed; it stays eligible for another try).
 """
 
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -68,6 +69,9 @@ CREATE TABLE IF NOT EXISTS enrichments (
     -- An English translation of the article's title. NULL when the title is already
     -- English (or was enriched before this existed); `articles.title` is never changed.
     english_title  TEXT,
+    -- The foundation models whose release the article announces, as a JSON array of
+    -- names. NULL when it announces none (or was enriched before this existed).
+    released_models TEXT,
     -- One result per article per (model, prompt) pair; re-running with a new
     -- prompt_version adds a row instead of overwriting the old one.
     UNIQUE (article_id, model, prompt_version)
@@ -220,6 +224,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
                  body_status 'pending', so the next `extract` run picks it up.
     enrichments: the retired relevance and why_it_matters columns are dropped.
     enrichments: also gain an `english_title` column; rows already stored keep it NULL.
+    enrichments: and a `released_models` column; rows already stored keep it NULL.
     digests:     gain a `headline` column; digests already stored keep it NULL.
     """
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(articles)")}
@@ -237,6 +242,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE enrichments DROP COLUMN {name}")
     if "english_title" not in enrichment_columns:
         conn.execute("ALTER TABLE enrichments ADD COLUMN english_title TEXT")
+    if "released_models" not in enrichment_columns:
+        conn.execute("ALTER TABLE enrichments ADD COLUMN released_models TEXT")
 
     digest_columns = {row["name"] for row in conn.execute("PRAGMA table_info(digests)")}
     if "headline" not in digest_columns:
@@ -419,22 +426,52 @@ def insert_enrichment(
     model: str,
     prompt_version: str,
     created_at: datetime,
+    released_models: tuple[str, ...] = (),
 ) -> bool:
     """Store an enrichment. Returns False if this article already has one for the pair.
 
     `english_title` is the title translated into English, or None if it already was English.
+    `released_models` are stored as a JSON array, or NULL when there are none.
     """
     cursor = conn.execute(
         """
-        INSERT INTO enrichments (article_id, category, summary, english_title, model,
-                                 prompt_version, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO enrichments (article_id, category, summary, english_title, released_models,
+                                 model, prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (article_id, model, prompt_version) DO NOTHING
         """,
-        (article_id, category, summary, english_title, model, prompt_version,
-         _format_timestamp(created_at)),
+        (article_id, category, summary, english_title,
+         json.dumps(list(released_models)) if released_models else None,
+         model, prompt_version, _format_timestamp(created_at)),
     )  # fmt: skip
     return cursor.rowcount == 1
+
+
+def released_models_since(conn: sqlite3.Connection, since: datetime) -> list[dict]:
+    """One row per (article, model name) for every article since `since` whose enrichment
+    names a released model, oldest first. Read-only.
+
+    An article enriched under several models or prompt versions lists each name once.
+    """
+    rows = conn.execute(
+        """
+        SELECT COALESCE(a.published_at, a.fetched_at) AS date, a.source, a.url, e.released_models
+        FROM enrichments e
+        JOIN articles a ON a.id = e.article_id
+        WHERE e.released_models IS NOT NULL
+          AND COALESCE(a.published_at, a.fetched_at) >= ?
+        ORDER BY date, a.id, e.id
+        """,
+        (_format_timestamp(since),),
+    ).fetchall()
+    seen: set[tuple[str, str]] = set()
+    found = []
+    for row in rows:
+        for name in json.loads(row["released_models"]):
+            if (row["url"], name) not in seen:
+                seen.add((row["url"], name))
+                found.append({"date": row["date"], "model": name, "source": row["source"], "url": row["url"]})
+    return found
 
 
 # --- Story clustering --------------------------------------------------------

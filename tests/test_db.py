@@ -319,3 +319,22 @@ def test_the_read_only_connection_uses_turso_when_the_environment_selects_it(mon
     db.connect_readonly()
 
     assert opened == [("libsql://from-the-environment", "from-the-environment")]  # no local file was involved
+
+
+def test_released_models_are_listed_once_per_article_and_name(conn):
+    a = add_ready(conn, "http://x/a")
+    for prompt_version, models in (("v6", ("M1", "M2")), ("v7", ("M2", "M3"))):  # re-enriched later
+        db.insert_enrichment(
+            conn, article_id=a, category="Product Release", summary="s", english_title=None,
+            model="m", prompt_version=prompt_version, created_at=NOW, released_models=models,
+        )  # fmt: skip
+    enrich_row(conn, add_ready(conn, "http://x/none"))  # no models: not listed
+
+    found = db.released_models_since(conn, WINDOW_START)
+
+    assert [(r["model"], r["url"], r["date"]) for r in found] == [
+        ("M1", "http://x/a", "2026-09-20T12:00:00Z"),
+        ("M2", "http://x/a", "2026-09-20T12:00:00Z"),
+        ("M3", "http://x/a", "2026-09-20T12:00:00Z"),
+    ]
+    assert db.released_models_since(conn, NOW + timedelta(seconds=1)) == []
