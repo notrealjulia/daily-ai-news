@@ -21,7 +21,7 @@ Google,2026-09-02,Gemini 3.8 Flash Cyber,Available only to trusted defenders thr
 Meta,2026-09-02,Muse Spark 1.3,Better agentic and coding performance; max reasoning mode added,https://research.meta.ai/blog/introducing-muse-spark-1-3,,,Model release
 miscellaneous,2026-09-02,Qwen3.8-Max-0902,"Qwen (Alibaba): API-only dated update of Qwen3.8-Max (coding, agents, vision); no blog post",https://modelstudio.console.alibabacloud.com/ap-southeast-1?tab=doc#/doc/?type=model&url=2840914_2&modelId=qwen3.8-max-0902&serviceSite=international,,,Model release
 Anthropic,2026-09-01,Claude Fable 5.1 / Claude Mythos 5.1,"succeeding Claude Fable 5 and Claude Mythos 5 in the same Mythos-class tier at the same per-token price. Both keep the 1-million-token context window (again both the default and the maximum), 128K output tokens, and always-on adaptive thinking, and both use the same tokenizer as Claude Fable 5. Per-token pricing is unchanged except for.",https://www.anthropic.com/claude-fable-and-mythos-5-1,https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1,,Model release
-OpenAI,2026-08-26,OpenAI o3 is retired from ChatGPT,"completing the 90-day sunset announced on May 28, 2026; GPT-4.5 had already been retired from ChatGPT on June 27, 2026 after a 30-day sunset. Both remained separate from the API lifecycle",https://help.openai.com/en/articles/9624314-model-release-notes,,,Company milestone
+OpenAI,2026-08-26,o3 retired from ChatGPT,"OpenAI o3 is retired from ChatGPT, completing the 90-day sunset announced on May 28, 2026; GPT-4.5 had already been retired from ChatGPT on June 27, 2026 after a 30-day sunset. Both remained separate from the API lifecycle",https://help.openai.com/en/articles/9624314-model-release-notes,,,Company milestone
 miscellaneous,2026-08-26,GLM-5.3-Flash,Z.ai (formerly Zhipu AI): 320B total / 18B active; built-in image understanding,https://docs.z.ai/guides/vlm/glm-5.3-flash,,,Model release
 miscellaneous,2026-08-26,Qwen3.8-Flash-Next,Qwen (Alibaba): 125B total / 6B active; open weights; preview of a new architecture,https://qwen.ai/blog?id=qwen3.8-flash-next,,,Model release
 miscellaneous,2026-08-14,GLM-5.3,Z.ai (formerly Zhipu AI): Big coding gains; Z.ai’s release notes date it Aug 18,https://docs.z.ai/guides/llm/glm-5.3,,,Model release
@@ -45,12 +45,12 @@ OpenAI,2026-07-09,GPT-5.6 Sol / GPT-5.6 Terra / GPT-5.6 Luna,"in three named cap
 Meta,2026-07-09,Muse Spark 1.1,1M-token context; launched with the public preview of the Meta Model API,https://ai.meta.com/blog/introducing-muse-spark-meta-model-api/,,,Model release
 OpenAI,2026-07-08,GPT-Live-1 / GPT-Live-1 mini,"a new generation of full-duplex voice models that listen and speak at the same time, replacing Advanced Voice Mode in ChatGPT, with API availability planned at announcement; GPT-Live 1 became generally available in the API on September 10, 2026",https://openai.com/index/introducing-gpt-live/,https://developers.openai.com/api/docs/changelog,,Model release
 xAI,2026-07-08,Grok 4.5,Reached the API Jul 8; xAI’s announcement post is dated Jul 16,https://x.ai/news/grok-4-5,,,Model release
-Anthropic,2026-07-02,Anthropic publishes further detail on Claude Fable 5's cyber safeguards and its proposed jailbreak-severity framework,"describing which categories of cybersecurity harm the safety classifiers are and are not designed to prevent, an early-draft severity framework being developed with Amazon, Microsoft, Google, and other Project Glasswing partners, and a HackerOne bug-bounty program for reporting potential cyber jailbreaks in Fable 5.",https://www.anthropic.com/news/fable-safeguards-jailbreak-framework,,,Company milestone
+Anthropic,2026-07-02,Fable 5 cyber safeguards,"Anthropic publishes further detail on Claude Fable 5's cyber safeguards and its proposed jailbreak-severity framework, describing which categories of cybersecurity harm the safety classifiers are and are not designed to prevent, an early-draft severity framework being developed with Amazon, Microsoft, Google, and other Project Glasswing partners, and a HackerOne bug-bounty program for reporting potential cyber jailbreaks in Fable 5.",https://www.anthropic.com/news/fable-safeguards-jailbreak-framework,,,Company milestone
 Anthropic,2026-06-30,Claude Sonnet 5,"described by Anthropic as its most capable Sonnet model yet - bringing near-Opus intelligence to coding, agents, and professional work at Sonnet cost, and a strict improvement over Sonnet 4.6 across the cost-performance curve. It becomes the default model for the Free and Pro plans and is the first Sonnet-tier model with the `xhigh`.",https://www.anthropic.com/news/claude-sonnet-5,https://aws.amazon.com/about-aws/whats-new/2026/06/claude-sonnet-5-now-available-on-aws/,,Model release
-Anthropic,2026-06-30,Anthropic announces the redeployment of Claude Fable 5,"following the lifting of the US government export-control directive. Claude Fable 5 returns globally starting June 30 / July 1, 2026 with updated cybersecurity safeguards - including a new safety classifier that blocks the reported bypass in over 99% of cases - and Claude Mythos 5 access is restored for a set of US organizations.",https://www.anthropic.com/news/redeploying-fable-5,,,Company milestone
+Anthropic,2026-06-30,Fable 5 redeployed,"Anthropic announces the redeployment of Claude Fable 5, following the lifting of the US government export-control directive. Claude Fable 5 returns globally starting June 30 / July 1, 2026 with updated cybersecurity safeguards - including a new safety classifier that blocks the reported bypass in over 99% of cases - and Claude Mythos 5 access is restored for a set of US organizations.",https://www.anthropic.com/news/redeploying-fable-5,,,Company milestone
 OpenAI,2026-06-26,GPT-5.6 Sol,"under a new U.S. government pre-release review process, ahead of its public release on July 9, 2026",https://openai.com/index/previewing-gpt-5-6-sol/,,,Model release
 miscellaneous,2026-06-16,GLM-5.2,Z.ai (formerly Zhipu AI): 1M context,https://docs.z.ai/guides/llm/glm-5.2,,,Model release
-Anthropic,2026-06-12,Access to Claude Fable 5 and Claude Mythos 5 is suspended under a US government directive,"Anthropic states that on June 12, 2026 (5:21pm ET) it received an export-control directive requiring it to suspend access to both Mythos-class models for any foreign national - whether inside or outside the United States, and including foreign-national Anthropic employees - the net effect of which, Anthropic says, is that it must disable.",https://www.anthropic.com/news/fable-mythos-access,,,Company milestone
+Anthropic,2026-06-12,Fable 5 & Mythos 5 suspended,"Anthropic states that on June 12, 2026 (5:21pm ET) it received an export-control directive requiring it to suspend access to both Mythos-class models for any foreign national - whether inside or outside the United States, and including foreign-national Anthropic employees - the net effect of which, Anthropic says, is that it must disable.",https://www.anthropic.com/news/fable-mythos-access,,,Company milestone
 miscellaneous,2026-06-12,Kimi K2.7 Code,Moonshot AI (Kimi): Open-weight coding model; 1T total / 32B active; about 30% fewer reasoning tokens than K2.6,https://www.kimi.ai/resources/kimi-k2-7-code,,,Model release
 Anthropic,2026-06-09,Claude Fable 5 / Claude Mythos 5,"introducing the Mythos-class capability tier that sits above the Opus class - the first new named tier since Opus / Sonnet / Haiku arrived with Claude 3 in March 2024. Claude Fable 5 is the generally available Mythos-class model, reported by Anthropic as state-of-the-art on nearly all tested benchmarks spanning software engineering.",https://www.anthropic.com/news/claude-fable-5-mythos-5,,,Model release
 miscellaneous,2026-06-04,Nemotron 3 Ultra,NVIDIA (Nemotron): 550B total / 55B active; hybrid Mamba-Transformer design,https://developer.nvidia.com/blog/nvidia-nemotron-3-ultra-powers-faster-more-efficient-reasoning-for-long-running-agents/,,,Model release
@@ -73,7 +73,7 @@ Meta,2026-04-08,Muse Spark,First model from Meta Superintelligence Labs; closed 
 miscellaneous,2026-04-07,GLM-5.1,Z.ai (formerly Zhipu AI): Can work on a single task for up to 8 hours,https://docs.z.ai/guides/llm/glm-5.1,,,Model release
 Google,2026-04-02,Gemma 4,Four open sizes under the Apache 2.0 license,https://blog.google/innovation-and-ai/technology/developers-tools/gemma-4/,,,Model release
 miscellaneous,2026-04-02,Qwen3.6-Plus,Qwen (Alibaba): Closed; 1M context; agent-focused coding,https://qwen.ai/blog?id=qwen3.6,,,Model release
-OpenAI,2026-03-24,The discontinuation of the Sora app is announced.,"The Sora web and app experiences ended on April 26, 2026, and the Sora 2 models and the Videos API were shut down on September 24, 2026 (see Deprecations)",https://help.openai.com/en/articles/20001152-what-to-know-about-the-sora-discontinuation,,,Company milestone
+OpenAI,2026-03-24,Sora discontinued,"The Sora web and app experiences ended on April 26, 2026, and the Sora 2 models and the Videos API were shut down on September 24, 2026 (see Deprecations)",https://help.openai.com/en/articles/20001152-what-to-know-about-the-sora-discontinuation,,,Company milestone
 xAI,2026-03-19,Composer 2,"Agentic coding model with continued pretraining and reinforcement learning, improving performance on coding benchmarks.",https://cursor.com/blog/composer-2,,,Model release
 OpenAI,2026-03-17,GPT-5.4 mini / GPT-5.4 nano,"bringing GPT-5.4-class capability to smaller, high-volume models",https://openai.com/index/introducing-gpt-5-4-mini-and-nano/,,,Model release
 Mistral,2026-03-16,Mistral Small 4,"119B total / 6B active MoE; combines reasoning, vision and coding in one model; Apache 2.0",https://mistral.ai/news/mistral-small-4/,,,Model release
@@ -110,7 +110,7 @@ miscellaneous,2025-11-06,Kimi K2 Thinking,Moonshot AI (Kimi): Reasoning version 
 miscellaneous,2025-10-30,Kimi Linear,Moonshot AI (Kimi): 48B total / 3B active; hybrid linear attention; 1M context,https://github.com/MoonshotAI/Kimi-Linear,,,Model release
 xAI,2025-10-29,Composer,Cursor’s first in-house agentic coding model for code editing and autonomous programming tasks.,https://cursor.com/blog/composer,,,Model release
 Anthropic,2025-10-15,Claude Haiku 4.5,the first Haiku model to support both extended thinking and Computer Use. It matches Claude Sonnet 4's coding performance at roughly one-third the cost and over twice the speed. Model identifier `claude-haiku-4-5-20251001`.,https://www.anthropic.com/news/claude-haiku-4-5,,,Model release
-OpenAI,2025-10-06,"DevDay 2025: Codex reaches general availability, and AgentKit and the Apps SDK are announced.",,https://openai.com/index/codex-now-generally-available/,,,Company milestone
+OpenAI,2025-10-06,DevDay 2025,"DevDay 2025: Codex reaches general availability, and AgentKit and the Apps SDK are announced.",https://openai.com/index/codex-now-generally-available/,,,Company milestone
 OpenAI,2025-09-30,Sora 2,"OpenAI's flagship video-and-audio generation model, alongside a new Sora app",https://openai.com/index/sora-2/,,,Model release
 miscellaneous,2025-09-30,GLM-4.6,Z.ai (formerly Zhipu AI): 200K context; coding-focused flagship,https://docs.z.ai/guides/llm/glm-4.6,,,Model release
 Anthropic,2025-09-29,Claude Sonnet 4.5,"with major coding, instruction-following, and agentic improvements at the same price as Sonnet 4. The same announcement adds a context editing feature and a memory tool to the Claude API. Model identifier `claude-sonnet-4-5-20250929`.",https://www.anthropic.com/news/claude-sonnet-4-5,,,Model release
@@ -131,7 +131,7 @@ Anthropic,2025-08-05,Claude Opus 4.1,"with improved coding (74.5% on SWE-bench V
 miscellaneous,2025-07-28,GLM-4.5,Z.ai (formerly Zhipu AI): Open-weight flagship,https://z.ai/blog/glm-4.5,,,Model release
 miscellaneous,2025-07-28,GLM-4.5-Air,Z.ai (formerly Zhipu AI): Smaller GLM-4.5,https://z.ai/blog/glm-4.5,,,Model release
 miscellaneous,2025-07-22,Qwen3-Coder,Qwen (Alibaba): Open coding model,https://qwenlm.github.io/blog/qwen3-coder/,,,Model release
-OpenAI,2025-07-17,ChatGPT agent is introduced,unifying Operator-style computer use and deep research into a single agent mode,https://openai.com/index/introducing-chatgpt-agent/,,,Company milestone
+OpenAI,2025-07-17,ChatGPT agent,"ChatGPT agent is introduced, unifying Operator-style computer use and deep research into a single agent mode",https://openai.com/index/introducing-chatgpt-agent/,,,Company milestone
 miscellaneous,2025-07-11,Kimi K2,Moonshot AI (Kimi): 1T total / 32B active open-weight MoE,https://www.kimi.ai/blog/kimi-k2,,,Model release
 xAI,2025-07-09,Grok 4,Native tool use and real-time search,https://x.ai/news/grok-4,,,Model release
 xAI,2025-07-09,Grok 4 Heavy,Most powerful Grok 4 version; came with the new SuperGrok Heavy tier,https://x.ai/news/grok-4,,,Model release
@@ -143,7 +143,7 @@ Mistral,2025-06-10,Magistral Small,Open-weight reasoning model in the Magistral 
 DeepSeek,2025-05-28,DeepSeek R1-0528,AIME 2025 score up from 70.0 to 87.5; fewer hallucinations,https://api-docs.deepseek.com/news/news250528,,,Model release
 Anthropic,2025-05-22,Claude Opus 4 / Claude Sonnet 4,"kicking off the Claude 4 generation. Claude Opus 4 is positioned as the world's best coding model at the time of announcement, with extended-thinking with tool use and improved memory features. Claude Code reaches general availability.",https://www.anthropic.com/news/claude-4,,,Model release
 Mistral,2025-05-21,Devstral Small,Agentic coding model; open weights,https://mistral.ai/news/devstral/,,,Model release
-OpenAI,2025-05-16,Codex (the cloud software-engineering agent) launches in ChatGPT,"as a research preview, powered by the `codex-1` model (a version of o3 optimized for software engineering)",https://openai.com/index/introducing-codex/,,,Company milestone
+OpenAI,2025-05-16,Codex launches,"Codex (the cloud software-engineering agent) launches in ChatGPT, as a research preview, powered by the `codex-1` model (a version of o3 optimized for software engineering)",https://openai.com/index/introducing-codex/,,,Company milestone
 Mistral,2025-05-07,Mistral Medium 3,Closed-weight Mistral API model positioned for enterprise tasks.,https://mistral.ai/news/mistral-medium-3/,,,Model release
 miscellaneous,2025-04-29,Qwen3,Qwen (Alibaba): Open family with dense and MoE models,https://qwenlm.github.io/blog/qwen3/,,,Model release
 Google,2025-04-17,Gemini 2.5 Flash,Preview; stable version Jun 17,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
@@ -159,7 +159,7 @@ DeepSeek,2025-03-24,DeepSeek V3-0324,Big gains in reasoning and front-end coding
 miscellaneous,2025-03-18,Llama Nemotron (Nano/Super),NVIDIA (Nemotron): Reasoning family announced at GTC,https://investor.nvidia.com/news/press-release-details/2025/NVIDIA-Launches-Family-of-Open-Reasoning-AI-Models-for-Developers-and-Enterprises-to-Build-Agentic-AI-Platforms/default.aspx,,,Model release
 Mistral,2025-03-17,Mistral Small 3.1,Adds image input to Small 3; open weights,https://mistral.ai/news/mistral-small-3-1/,,,Model release
 Google,2025-03-12,Gemma 3,Open model; 27B also offered via the API,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
-OpenAI,2025-03-11,The Responses API and the open-source Agents SDK are introduced,"with built-in web search, file search, and computer-use tools",https://openai.com/index/new-tools-for-building-agents/,,,Company milestone
+OpenAI,2025-03-11,Responses API & Agents SDK,"The Responses API and the open-source Agents SDK are introduced, with built-in web search, file search, and computer-use tools",https://openai.com/index/new-tools-for-building-agents/,,,Company milestone
 miscellaneous,2025-03-06,QwQ-32B,Qwen (Alibaba): Open reasoning model,https://qwenlm.github.io/blog/qwq-32b/,,,Model release
 OpenAI,2025-02-27,GPT-4.5,as a research preview - OpenAI's largest non-reasoning chat model; later deprecated (see Deprecations),https://openai.com/index/introducing-gpt-4-5/,,,Model release
 Anthropic,2025-02-24,Claude 3.7 Sonnet,"as Anthropic's first hybrid reasoning model with both standard and extended-thinking modes that the user controls via the API, alongside a research preview of the Claude Code command-line coding agent.",https://www.anthropic.com/news/claude-3-7-sonnet,,,Model release
@@ -167,12 +167,12 @@ xAI,2025-02-17,Grok 3,Launched as a beta; xAI’s post is dated Feb 19; API acce
 xAI,2025-02-17,Grok 3 mini,Smaller reasoning model; same post as Grok 3,https://x.ai/news/grok-3,,,Model release
 Google,2025-02-05,Gemini 2.0 Pro,Experimental preview,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
 Google,2025-02-05,Gemini 2.0 Flash-Lite,Preview; GA Feb 25,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
-OpenAI,2025-02-02,Deep research is launched in ChatGPT,an agent that performs multi-step web research,https://openai.com/index/introducing-deep-research/,,,Company milestone
+OpenAI,2025-02-02,Deep research,"Deep research is launched in ChatGPT, an agent that performs multi-step web research",https://openai.com/index/introducing-deep-research/,,,Company milestone
 OpenAI,2025-01-31,o3-mini,in ChatGPT and the API - the first reasoning model offered to free ChatGPT users,https://openai.com/index/openai-o3-mini/,,,Model release
 Google,2025-01-30,Gemini 2.0 Flash,"Google's notes date it differently: experimental Dec 11, 2024; GA Feb 5, 2025",https://ai.google.dev/gemini-api/docs/changelog,,,Model release
 Mistral,2025-01-30,Mistral Small 3,24B; Apache 2.0,https://mistral.ai/news/mistral-small-3/,,,Model release
 miscellaneous,2025-01-28,Qwen2.5-Max,Qwen (Alibaba): Large closed MoE model; trained on 20T+ tokens,https://qwenlm.github.io/blog/qwen2.5-max/,,,Model release
-OpenAI,2025-01-23,Operator is introduced,a research-preview agent that uses a computer (browser) on the user's behalf,https://openai.com/index/introducing-operator/,,,Company milestone
+OpenAI,2025-01-23,Operator,"Operator is introduced, a research-preview agent that uses a computer (browser) on the user's behalf",https://openai.com/index/introducing-operator/,,,Company milestone
 DeepSeek,2025-01-20,DeepSeek Chat (R1-based),DeepSeek calls this DeepSeek-R1; served as the deepseek-reasoner API,https://api-docs.deepseek.com/news/news250120,,,Model release
 miscellaneous,2025-01-20,Kimi K1.5,Moonshot AI (Kimi): Reasoning model trained with reinforcement learning,https://github.com/MoonshotAI/Kimi-k1.5,,,Model release
 Mistral,2025-01-13,Codestral 25.01,Updated Codestral model optimized for code completion and developer workflows.,https://mistral.ai/news/codestral-2501/,,,Model release
@@ -188,14 +188,14 @@ Mistral,2024-11-18,Pixtral Large 24.11,124B multimodal model built on Mistral La
 Mistral,2024-11-18,Mistral Large 2 24.11,Update to Large 2: better long context and function calling; same post as Pixtral Large,https://mistral.ai/news/pixtral-large/,,,Model release
 miscellaneous,2024-11-12,Qwen2.5-Coder,Qwen (Alibaba): Six sizes from 0.5B to 32B,https://qwenlm.github.io/blog/qwen2.5-coder-family/,,,Model release
 Anthropic,2024-11-04,Claude 3.5 Haiku,on the Anthropic API.,,,,Model release
-OpenAI,2024-10-31,ChatGPT search is launched,adding live web results to ChatGPT,https://openai.com/index/introducing-chatgpt-search/,,,Company milestone
+OpenAI,2024-10-31,ChatGPT search,"ChatGPT search is launched, adding live web results to ChatGPT",https://openai.com/index/introducing-chatgpt-search/,,,Company milestone
 Anthropic,2024-10-22,Claude 3.5 Sonnet / Claude 3.5 Haiku,"and Computer Use is released as a public beta capability, allowing Claude to perceive and interact with computer interfaces by viewing screens, moving the cursor, clicking, and typing.",https://www.anthropic.com/news/3-5-models-and-computer-use,,,Model release
 Mistral,2024-10-16,Ministral 8B,8B small model designed for efficient edge deployment.,https://mistral.ai/news/ministraux/,,,Model release
 Mistral,2024-10-16,Ministral 3B,3B small model designed for efficient edge deployment.,https://mistral.ai/news/ministraux/,,,Model release
 miscellaneous,2024-10-15,Llama 3.1 Nemotron 70B,NVIDIA (Nemotron): Llama 3.1 70B fine-tuned by NVIDIA,https://huggingface.co/nvidia/Llama-3.1-Nemotron-70B-Instruct,,,Model release
-Anthropic,2024-10-08,The Message Batches API enters public beta,"enabling asynchronous batch processing of up to 10,000 messages at 50% off standard pricing.",https://www.anthropic.com/news/message-batches-api,,,Company milestone
+Anthropic,2024-10-08,Message Batches API beta,"The Message Batches API enters public beta, enabling asynchronous batch processing of up to 10,000 messages at 50% off standard pricing.",https://www.anthropic.com/news/message-batches-api,,,Company milestone
 Google,2024-10-03,Gemini 1.5 Flash-8B,Stable version of Google's smallest API model,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
-OpenAI,2024-10-01,The Realtime API enters public beta,"(DevDay 2024), enabling low-latency speech-to-speech apps",https://openai.com/index/introducing-the-realtime-api/,,,Company milestone
+OpenAI,2024-10-01,Realtime API beta,"The Realtime API enters public beta (DevDay 2024), enabling low-latency speech-to-speech apps",https://openai.com/index/introducing-the-realtime-api/,,,Company milestone
 Meta,2024-09-25,Llama 3.2,"First Llama vision models (11B, 90B) plus 1B/3B on-device models",https://ai.meta.com/blog/llama-3-2-connect-2024-vision-edge-mobile-devices/,,,Model release
 Google,2024-09-24,Gemini 1.5 Flash-002,Stable GA update,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
 Google,2024-09-24,Gemini 1.5 Pro-002,Stable GA update,https://ai.google.dev/gemini-api/docs/changelog,,,Model release
@@ -204,7 +204,7 @@ OpenAI,2024-09-12,o1-preview / o1-mini,"OpenAI's first reasoning models, trained
 Mistral,2024-09-11,Pixtral 24.09,"Pixtral 12B, Mistral’s first multimodal model; Mistral’s post is dated Sep 17",https://mistral.ai/news/pixtral-12b/,,,Model release
 DeepSeek,2024-09-05,DeepSeek V2.5,Merged V2 Chat and Coder V2 into a single model,https://api-docs.deepseek.com/news/news0905,,,Model release
 miscellaneous,2024-08-29,GLM-4-Plus,"Z.ai (formerly Zhipu AI): Closed API model; no English announcement found, so this links to Zhipu’s API platform",https://bigmodel.cn,,,Model release
-Anthropic,2024-08-14,Prompt caching enters public beta,"on the Anthropic API, allowing developers to cache long repeated prompt prefixes for cost and latency reductions.",https://www.anthropic.com/news/prompt-caching,,,Company milestone
+Anthropic,2024-08-14,Prompt caching beta,"Prompt caching enters public beta, on the Anthropic API, allowing developers to cache long repeated prompt prefixes for cost and latency reductions.",https://www.anthropic.com/news/prompt-caching,,,Company milestone
 xAI,2024-08-14,Grok-2,Launched alongside Grok-2 mini; xAI’s post is dated Aug 13,https://x.ai/news/grok-2,,,Model release
 Mistral,2024-07-24,Mistral Large 2,123B flagship model,https://mistral.ai/news/mistral-large-2407/,,,Model release
 Meta,2024-07-23,Llama 3.1,Includes 405B; 128K context; open weights,https://ai.meta.com/blog/meta-llama-3-1/,,,Model release
@@ -218,14 +218,14 @@ DeepSeek,2024-06-17,DeepSeek Coder V2,Built from a DeepSeek-V2 checkpoint; 338 p
 miscellaneous,2024-06-14,Nemotron-4 340B,"NVIDIA (Nemotron): Base, instruct and reward models for generating synthetic training data",https://blogs.nvidia.com/blog/nemotron-4-synthetic-data-generation-llm-training/,,,Model release
 miscellaneous,2024-06-06,Qwen2,Qwen (Alibaba): Open family,https://qwenlm.github.io/blog/qwen2/,,,Model release
 miscellaneous,2024-06-05,GLM-4-9B,Z.ai (formerly Zhipu AI): Open weights; includes 128K and 1M-context chat versions,https://github.com/zai-org/GLM-4,,,Model release
-Anthropic,2024-05-30,Tool use becomes generally available,"on Claude 3 Opus, Sonnet, and Haiku.",https://www.anthropic.com/news/tool-use-ga,,,Company milestone
+Anthropic,2024-05-30,Tool use GA,"Tool use becomes generally available, on Claude 3 Opus, Sonnet, and Haiku.",https://www.anthropic.com/news/tool-use-ga,,,Company milestone
 Mistral,2024-05-29,Codestral 22B,Mistral’s first code model,https://mistral.ai/news/codestral/,,,Model release
 Google,2024-05-14,Gemini 1.5 Flash,Announced at I/O; distilled from 1.5 Pro,https://blog.google/innovation-and-ai/products/google-gemini-update-flash-ai-assistant-io-2024/,,,Model release
 OpenAI,2024-05-13,GPT-4o,"a single model handling text, audio, and image input and output, with a 128K-token context window",https://openai.com/index/hello-gpt-4o/,,,Model release
 DeepSeek,2024-05-06,DeepSeek V2,236B total / 21B active parameters; 128K context; introduced Multi-head Latent Attention,https://github.com/deepseek-ai/DeepSeek-V2,,,Model release
 Meta,2024-04-18,Llama 3 (8B/70B),Open weights; trained on over 15T tokens,https://ai.meta.com/blog/meta-llama-3/,,,Model release
 Mistral,2024-04-10,Mixtral 8×22B,Larger Mixtral; Mistral’s post is dated Apr 17,https://mistral.ai/news/mixtral-8x22b/,,,Model release
-Anthropic,2024-04-04,Tool use enters public beta,"on the Claude API, allowing models to call developer-defined functions.",,,,Company milestone
+Anthropic,2024-04-04,Tool use beta,"Tool use enters public beta, on the Claude API, allowing models to call developer-defined functions.",,,,Company milestone
 xAI,2024-03-29,Grok-1.5,128K context; xAI’s post is dated Mar 28,https://x.ai/news/grok-1.5,,,Model release
 Anthropic,2024-03-13,Claude 3 Haiku,on the Anthropic API.,https://www.anthropic.com/news/claude-3-haiku,,,Model release
 Anthropic,2024-03-04,Claude 3 Opus / Claude 3 Sonnet / Claude 3 Haiku,"(Opus, Sonnet, Haiku), introducing the three-tier naming scheme that all later Claude models follow. Claude 3 is the first Claude family with multimodal (vision) input across every model tier. Claude 3 Opus and Claude 3 Sonnet are available the same day; Claude 3 Haiku follows shortly after.",https://www.anthropic.com/news/claude-3-family,,,Model release
@@ -239,7 +239,7 @@ miscellaneous,2024-02-04,Qwen1.5,"Qwen (Alibaba): Open models from 0.5B to 110B,
 Meta,2024-01-29,Code Llama 70B,Largest Code Llama; added as an update to the original Code Llama post,https://ai.meta.com/blog/code-llama-large-language-model-coding/,,,Model release
 miscellaneous,2024-01-16,GLM-4,"Z.ai (formerly Zhipu AI): Closed API model; no dedicated page found, but the ChatGLM-6B GitHub page covers the GLM-4 API",https://github.com/zai-org/ChatGLM-6B,,,Model release
 DeepSeek,2024-01-11,DeepSeek-MoE,16B mixture-of-experts model; about 40% of the compute of a comparable dense 7B,https://github.com/deepseek-ai/DeepSeek-MoE,,,Model release
-OpenAI,2024-01-10,The GPT Store launches,alongside ChatGPT Team,https://openai.com/index/introducing-the-gpt-store/,,,Company milestone
+OpenAI,2024-01-10,GPT Store,"The GPT Store launches, alongside ChatGPT Team",https://openai.com/index/introducing-the-gpt-store/,,,Company milestone
 Google,2023-12-13,Gemini 1.0 Pro,Opened to developers via the Gemini API and Vertex AI; 32K context,https://blog.google/innovation-and-ai/products/gemini-api-developers-cloud/,,,Model release
 Mistral,2023-12-11,Mistral Medium,"Closed API model; launched with Mistral’s API platform, La Plateforme",https://mistral.ai/news/la-plateforme/,,,Model release
 Mistral,2023-12-08,Mixtral 8×7B,Sparse mixture-of-experts model; Mistral’s post is dated Dec 11,https://mistral.ai/news/mixtral-of-experts/,,,Model release
@@ -247,36 +247,36 @@ Google,2023-12-06,Gemini 1.0 Nano,Gemini 1.0 announced in three sizes; Nano runs
 miscellaneous,2023-11-30,Qwen-72B,Qwen (Alibaba): 32K context; released alongside Qwen-1.8B,https://github.com/QwenLM/Qwen,,,Model release
 DeepSeek,2023-11-29,DeepSeek-LLM,"7B and 67B, base and chat; trained on 2T English and Chinese tokens",https://github.com/deepseek-ai/DeepSeek-LLM,,,Model release
 Anthropic,2023-11-21,Claude 2.1,"with a 200K-token context window, system prompts, and tool use as a beta.",https://www.anthropic.com/news/claude-2-1,,,Model release
-OpenAI,2023-11-06,"First DevDay: GPT-4 Turbo, JSON mode, the Assistants API, and GPTs are announced.",GPT-4 Turbo introduced a 128K-token context window,https://openai.com/index/new-models-and-developer-products-announced-at-devday/,,,Company milestone
+OpenAI,2023-11-06,DevDay 2023,GPT-4 Turbo introduced a 128K-token context window,https://openai.com/index/new-models-and-developer-products-announced-at-devday/,,,Company milestone
 xAI,2023-11-03,Grok-1,"First Grok model, launched on X; weights opened Mar 17, 2024",https://x.ai/news/grok,https://x.ai/news/grok-os,,Model release
 DeepSeek,2023-11-02,DeepSeek Coder,"Code models from 1B to 33B, trained on 2T tokens (87% code); 16K context",https://github.com/deepseek-ai/DeepSeek-Coder,,,Model release
 OpenAI,2023-10-19,DALL·E 3,"(announced September 20, 2023), integrating image generation directly into the chat experience",https://openai.com/index/dall-e-3/,,,Model release
 miscellaneous,2023-10-09,Kimi Chat,"Moonshot AI (Kimi): Original Kimi assistant; I found no launch post on Moonshot’s sites, so this links to the company page",https://www.moonshot.ai/about,,,Model release
-Anthropic,2023-09-28,Amazon Bedrock reaches general availability,"in US East (N. Virginia) and US West (Oregon) with Anthropic Claude 2 as one of the launch foundation models, alongside models from AI21 Labs, Cohere, Stability AI, and Amazon Titan (with Meta's Llama 2 following soon after).",https://aws.amazon.com/about-aws/whats-new/2023/09/amazon-bedrock-generally-available/,,,Company milestone
+Anthropic,2023-09-28,Amazon Bedrock GA,"Amazon Bedrock reaches general availability, in US East (N. Virginia) and US West (Oregon) with Anthropic Claude 2 as one of the launch foundation models, alongside models from AI21 Labs, Cohere, Stability AI, and Amazon Titan (with Meta's Llama 2 following soon after).",https://aws.amazon.com/about-aws/whats-new/2023/09/amazon-bedrock-generally-available/,,,Company milestone
 Mistral,2023-09-27,Mistral 7B,Mistral’s first model; open weights,https://mistral.ai/news/announcing-mistral-7b/,,,Model release
-OpenAI,2023-09-25,ChatGPT gains voice and image input,"(""see, hear, and speak"")",https://openai.com/index/chatgpt-can-now-see-hear-and-speak/,,,Company milestone
-Anthropic,2023-09-25,Anthropic and Amazon announce a strategic collaboration,under which Anthropic will make future Claude models available on Amazon Bedrock and use AWS Trainium and Inferentia for training.,https://www.anthropic.com/news/anthropic-amazon,,,Company milestone
-OpenAI,2023-08-28,ChatGPT Enterprise is announced,"adding enterprise security, longer context, and administrative controls",https://openai.com/index/introducing-chatgpt-enterprise/,,,Company milestone
+OpenAI,2023-09-25,ChatGPT voice & images,"ChatGPT gains voice and image input (""see, hear, and speak"")",https://openai.com/index/chatgpt-can-now-see-hear-and-speak/,,,Company milestone
+Anthropic,2023-09-25,Amazon partnership,"Anthropic and Amazon announce a strategic collaboration, under which Anthropic will make future Claude models available on Amazon Bedrock and use AWS Trainium and Inferentia for training.",https://www.anthropic.com/news/anthropic-amazon,,,Company milestone
+OpenAI,2023-08-28,ChatGPT Enterprise,"ChatGPT Enterprise is announced, adding enterprise security, longer context, and administrative controls",https://openai.com/index/introducing-chatgpt-enterprise/,,,Company milestone
 Meta,2023-08-24,Code Llama,Code-specialized model built on Llama 2; open weights,https://ai.meta.com/blog/code-llama-large-language-model-coding/,,,Model release
 miscellaneous,2023-08-03,Qwen-7B,Qwen (Alibaba): First open Qwen model,https://github.com/QwenLM/Qwen,,,Model release
 Anthropic,2023-08-01,Claude 2,"with up to 100,000-token context windows, joining Anthropic Claude as a Bedrock preview model ahead of Bedrock's GA.",https://aws.amazon.com/about-aws/whats-new/2023/08/claude-2-foundation-model-anthropic-amazon-bedrock/,,,Model release
 Meta,2023-07-18,Llama 2,"Open weights, free for research and commercial use; launched with Microsoft as preferred partner",https://ai.meta.com/blog/llama-2/,,,Model release
 Anthropic,2023-07-11,Claude 2,"with improved coding, math, and reasoning, the public `claude.ai` chat interface, and a 100K context window.",https://www.anthropic.com/news/claude-2,,,Model release
-OpenAI,2023-06-13,Function calling is added to the Chat Completions API,letting models output structured arguments to call developer-defined functions,https://openai.com/index/function-calling-and-other-api-updates/,,,Company milestone
-Anthropic,2023-05-11,The context window is expanded from 9K to 100K tokens,on Claude. This was the first 100K-token context window from a frontier AI lab.,https://www.anthropic.com/news/100k-context-windows,,,Company milestone
+OpenAI,2023-06-13,Function calling,"Function calling is added to the Chat Completions API, letting models output structured arguments to call developer-defined functions",https://openai.com/index/function-calling-and-other-api-updates/,,,Company milestone
+Anthropic,2023-05-11,Context window 9K → 100K,"The context window is expanded from 9K to 100K tokens, on Claude. This was the first 100K-token context window from a frontier AI lab.",https://www.anthropic.com/news/100k-context-windows,,,Company milestone
 Google,2023-03-21,Bard,"Early-access chatbot, U.S. and U.K. only",https://blog.google/innovation-and-ai/products/try-bard/,,,Model release
 OpenAI,2023-03-14,GPT-4,"a large multimodal model accepting text and image input (image input shipped first as a limited preview and broadened over 2023-2024), with 8K- and 32K-token context variants",https://openai.com/index/gpt-4-research/,,,Model release
 Anthropic,2023-03-14,Claude 1 / Claude Instant,and the Anthropic API opens for early access.,https://www.anthropic.com/news/introducing-claude,,,Model release
 miscellaneous,2023-03-14,ChatGLM-6B,Z.ai (formerly Zhipu AI): 6.2B open bilingual (Chinese/English) chat model,https://github.com/zai-org/ChatGLM-6B,,,Model release
 OpenAI,2023-03-01,gpt-3.5-turbo / Whisper,"for developers - the same model that powers the ChatGPT product, now available in the API",https://openai.com/index/introducing-chatgpt-and-whisper-apis/,,,Model release
 Meta,2023-02-24,LLaMA 1,"7B–65B sizes; research-only license, access by application",https://ai.meta.com/blog/large-language-model-llama-meta-ai/,,,Model release
-OpenAI,2023-02-01,ChatGPT Plus is introduced,the first paid ChatGPT subscription tier,https://openai.com/index/chatgpt-plus/,,,Company milestone
-Anthropic,2022-12-15,Anthropic publishes the Constitutional AI paper,introducing the alignment method that underpins every later Claude model.,https://www.anthropic.com/research/constitutional-ai-harmlessness-from-ai-feedback,,,Company milestone
-OpenAI,2022-11-30,ChatGPT is launched,"as a free research preview, built on the GPT-3.5 series",https://openai.com/index/chatgpt/,,,Company milestone
+OpenAI,2023-02-01,ChatGPT Plus,"ChatGPT Plus is introduced, the first paid ChatGPT subscription tier",https://openai.com/index/chatgpt-plus/,,,Company milestone
+Anthropic,2022-12-15,Constitutional AI paper,"Anthropic publishes the Constitutional AI paper, introducing the alignment method that underpins every later Claude model.",https://www.anthropic.com/research/constitutional-ai-harmlessness-from-ai-feedback,,,Company milestone
+OpenAI,2022-11-30,ChatGPT launch,"ChatGPT is launched, as a free research preview, built on the GPT-3.5 series",https://openai.com/index/chatgpt/,,,Company milestone
 OpenAI,2022-09-21,Whisper,as an open-source automatic speech recognition model,https://openai.com/index/whisper/,,,Model release
 OpenAI,2022-04-06,DALL·E 2,"as a research preview, with higher-resolution and more realistic image generation",https://openai.com/index/dall-e-2/,,,Model release
 OpenAI,2021-08-10,Codex,"(private beta) - a GPT-3 descendant fine-tuned on code that translates natural language into code. This is the original Codex, later retired (see Deprecations)",,,,Model release
-OpenAI,2021-06-29,GitHub Copilot launches in technical preview,powered by the original OpenAI Codex model,https://github.blog/news-insights/product-news/introducing-github-copilot-ai-pair-programmer/,,,Company milestone
+OpenAI,2021-06-29,GitHub Copilot preview,"GitHub Copilot launches in technical preview, powered by the original OpenAI Codex model",https://github.blog/news-insights/product-news/introducing-github-copilot-ai-pair-programmer/,,,Company milestone
 OpenAI,2021-01-05,DALL·E / CLIP,bringing text-to-image generation to the GPT family of research,https://openai.com/index/dall-e/,,,Model release
-Anthropic,2021-01,Anthropic is founded,"as an AI safety company by Dario Amodei, Daniela Amodei, and other former OpenAI researchers.",,,,Company milestone
+Anthropic,2021-01,Anthropic founded,"Anthropic is founded, as an AI safety company by Dario Amodei, Daniela Amodei, and other former OpenAI researchers.",,,,Company milestone
 OpenAI,2020-06-11,GPT-3,(private beta) - the first GPT model OpenAI commercialized broadly,https://openai.com/index/openai-api/,,,Model release

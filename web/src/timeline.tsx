@@ -8,7 +8,8 @@ import { Win98LinkButton } from "@/components/win98-link-button"
 import { Win98Window } from "@/components/win98-window"
 import { companies, releases, type Release } from "@/lib/releases"
 
-// The Model Release Timeline (timeline.html): foundation model releases, newest first, a
+// The AI Timeline (timeline.html): foundation model releases and company
+// milestones (the same cards in a darker shade of the company's color), newest first, a
 // column per company in the CSV. The columns share one scale, the date axis at the far
 // left: a row per release date, so releases on the same day sit level with each other
 // and the order down the page is the order in time. More companies just add columns;
@@ -27,6 +28,20 @@ const FACES = [
 ]
 const face = (company: string) =>
   FACES[companies.indexOf(company) % FACES.length]
+// A milestone card: the company's color under a half-black layer, with white text (dark
+// enough for it to read). A layer rather than a filter, which would dim the text too.
+const MILESTONE =
+  "bg-[image:linear-gradient(rgb(0_0_0/0.5),rgb(0_0_0/0.5))] text-white outline-white"
+// Companies whose milestone cards have their own colors instead.
+const MILESTONE_COLORS: Record<string, string> = {
+  OpenAI: "bg-[#322128] text-[#fbcbe0] outline-[#fbcbe0]!",
+  Anthropic: "bg-[#2a404c] text-[#b9def4] outline-[#b9def4]!",
+}
+const cardColor = (release: Release) =>
+  !release.milestone
+    ? face(release.company)
+    : (MILESTONE_COLORS[release.company] ??
+      `${face(release.company)} ${MILESTONE}`)
 
 const MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split(" ")
 
@@ -58,7 +73,7 @@ function ReleaseButton({ release }: { release: Release }) {
         openOnHover
         delay={150}
         closeDelay={150}
-        className={`${face(release.company)} max-w-full px-2.5 py-1.5 text-left leading-tight bevel-raised outline-offset-[-4px] outline-foreground focus-visible:outline-1 focus-visible:outline-dotted active:bevel-sunken data-[popup-open]:bevel-sunken`}
+        className={`${cardColor(release)} max-w-full px-2.5 py-1.5 text-left leading-tight bevel-raised outline-offset-[-4px] outline-foreground focus-visible:outline-1 focus-visible:outline-dotted active:bevel-sunken data-[popup-open]:bevel-sunken`}
       >
         {release.name}
       </Popover.Trigger>
@@ -72,6 +87,7 @@ function ReleaseButton({ release }: { release: Release }) {
           <Popover.Popup className="flex w-[min(22rem,calc(100vw-24px))] flex-col bg-window p-[3px] bevel-raised drop-shadow-[3px_3px_0_oklch(from_var(--muted-purple)_l_c_h_/_30%)] outline-none">
             <Popover.Title className="bg-primary px-1.5 py-0.5 font-ui text-[11px] font-bold text-primary-foreground">
               {release.company} · {longDate(release.date)}
+              {release.milestone && " · Milestone"}
             </Popover.Title>
             <div className="flex flex-col gap-2 p-3">
               <Popover.Description className="leading-snug">
@@ -117,7 +133,7 @@ const ROW_SHADES = ["", "bg-pastel-cream/55"]
 const AXIS_SHADES = ["bg-window/85", "bg-pastel-cream/85"]
 const STICKY = "backdrop-blur-md"
 
-// One row per date that has a release, newest first.
+// One row per date that has a release or milestone, newest first.
 const dates = [...new Set(releases.map((release) => release.date))]
 const onDate = (date: string, company: string) =>
   releases.filter((r) => r.date === date && r.company === company)
@@ -129,11 +145,11 @@ function Timeline() {
       <main className="mx-auto flex w-7/8 flex-col gap-2 py-8">
         <header className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <Win98LinkButton href="/">← Daily Brief</Win98LinkButton>
-          <h1 className="text-[2rem] font-bold">Model Release Timeline</h1>
+          <h1 className="text-[2rem] font-bold">AI Timeline</h1>
         </header>
 
         <Win98Window
-          title="Model releases"
+          title="Model releases & milestones"
           minimizable={false}
           className="bg-window/45"
         >

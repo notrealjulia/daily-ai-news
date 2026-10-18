@@ -155,7 +155,7 @@ export function App() {
             href="/timeline.html"
             className="ml-auto self-center"
           >
-            Model Timeline →
+            AI Timeline →
           </Win98LinkButton>
         </header>
 

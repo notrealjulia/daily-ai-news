@@ -1,8 +1,8 @@
 // The model release timeline's data: web/src/data/ai_releases.csv, bundled into the
 // page as text at build time. Columns, read by their header: Company name, Release date
 // (YYYY-MM-DD, or YYYY-MM when the day is unknown), Release name, Notes, Link 1-3, and
-// Release type: "Model release" or "Company milestone". Only model releases are shown;
-// the milestones stay in the CSV.
+// Release type: "Model release" or "Company milestone". Both are shown, milestones
+// flagged as such.
 import csvText from "@/data/ai_releases.csv?raw"
 
 export type Release = {
@@ -11,6 +11,7 @@ export type Release = {
   name: string
   summary: string
   links: string[]
+  milestone: boolean
 }
 
 /** Rows of fields; handles quoted fields with commas, newlines and "" escapes. */
@@ -87,10 +88,9 @@ const [COMPANY, DATE, NAME, NOTES, TYPE] = [
 ].map(column)
 const LINKS = header.flatMap((name, i) => (/^Link \d+$/.test(name) ? [i] : []))
 
-/** Every model release, newest first. (Without a Release type column, every row.) */
+/** Every model release and company milestone, newest first. */
 export const releases: Release[] = rows
   .filter((row) => field(row, COMPANY) && field(row, DATE))
-  .filter((row) => TYPE < 0 || field(row, TYPE) === "Model release")
   .map((row) => ({
     company: field(row, COMPANY),
     date: field(row, DATE),
@@ -100,6 +100,7 @@ export const releases: Release[] = rows
     links: LINKS.map((i) => field(row, i)).filter((link) =>
       /^https?:\/\//.test(link)
     ),
+    milestone: field(row, TYPE) === "Company milestone",
   }))
   .sort((a, b) => b.date.localeCompare(a.date))
 
@@ -124,7 +125,7 @@ function columnRank(company: string) {
   return listed < 0 ? COLUMN_ORDER.length : listed
 }
 
-/** The companies with model releases, in COLUMN_ORDER: one timeline column each. */
+/** The companies in the CSV, in COLUMN_ORDER: one timeline column each. */
 export const companies = [...new Set(releases.map((r) => r.company))].sort(
   (a, b) => columnRank(a) - columnRank(b) || a.localeCompare(b)
 )
