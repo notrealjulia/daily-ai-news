@@ -123,7 +123,7 @@ Foreign keys cascade on delete. The schema, migrations and every query live in `
 
 Each LLM stage has its own model and prompt version. Changing either makes the affected work eligible again alongside the old results; nothing is deleted.
 
-**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), or a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run) - exits non-zero.
+**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run), or enrich, digest or narrate failing on *every* item it attempted with none succeeding (e.g. a revoked API key) - exits non-zero.
 
 ## Configuration
 

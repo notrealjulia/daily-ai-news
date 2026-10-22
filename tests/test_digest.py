@@ -250,3 +250,19 @@ def test_digest_command_still_succeeds_when_one_categorys_digest_fails(monkeypat
     assert code == 0
     assert "FAILED" in out and "Business" in out and "slow down" in out
     assert shows(out, r"digests written this run:\s+1\b") and shows(out, r"failed this run:\s+1\b")
+
+
+def test_digest_command_exits_non_zero_when_every_category_fails(monkeypatch, tmp_path, capsys):
+    db_path = tmp_path / "t.db"
+    conn = db.connect(db_path)
+    make_run(conn, ("Research", "A story.", 1, "ready"), ("Business", "B story.", 1, "ready"))
+    conn.close()
+
+    def respond(category, input_text):
+        raise llm.LLMError("AuthenticationError (HTTP 401): Incorrect API key provided")
+
+    fake = FakeLLM(respond)
+    monkeypatch.setattr(llm, "create", lambda model: fake)
+
+    assert main(["digest", "--db", str(db_path)]) == 1
+    assert "Every attempt failed" in capsys.readouterr().out

@@ -31,3 +31,6 @@ dist/
 
 # Local-only comparison takes (e.g. manual TTS provider/voice tests), never committed.
 audio/local/
+
+# Local experiments, never committed.
+experiments/

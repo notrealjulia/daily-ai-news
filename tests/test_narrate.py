@@ -463,3 +463,21 @@ def test_narrate_command_reports_no_run_isolates_a_failure_and_writes_per_catego
     assert not (tmp_path / "audio" / "business.mp3").exists()  # failed: nothing written
     assert (tmp_path / "audio" / "briefing.mp3").read_bytes() == b"fake-audio-bytes"  # Research alone
     assert re.search(r"full briefing:\s+Research", out)
+
+
+def test_narrate_command_exits_non_zero_when_every_category_fails(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    db_path = tmp_path / "t.db"
+    conn = db.connect(db_path)
+    add_run(conn, stories={"Research": [("A", "S.")], "Business": [("B", "S.")]}, key="h3")
+    conn.close()
+
+    def respond(input_text):
+        raise LLMError("AuthenticationError (HTTP 401): Incorrect API key provided")
+
+    monkeypatch.setattr(llm, "create", lambda model: FakeLLM(respond))
+    monkeypatch.setattr(llm, "create_tts", lambda: FakeTTS())
+
+    assert main(["narrate", "--db", str(db_path)]) == 1
+    assert "Every attempt failed" in capsys.readouterr().out
+    assert not (tmp_path / "audio").exists() or not any((tmp_path / "audio").iterdir())  # nothing written

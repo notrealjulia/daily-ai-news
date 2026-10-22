@@ -16,6 +16,18 @@ if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs
     from ainews import digest, enrich, extract, narrate, stories
 
 
+def _total_failure_exit(summary) -> int:
+    """1 when every attempted item failed and none succeeded, else 0.
+
+    One item failing is isolated and retryable, but all of them failing (e.g. a revoked
+    API key: every call returns 401) means the stage produced nothing - a genuine stage
+    failure that must turn the workflow run red instead of passing silently."""
+    if summary.failed and not summary.succeeded:
+        print("\nEvery attempt failed and nothing succeeded: exiting non-zero.")
+        return 1
+    return 0
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     feeds = ingest.load_feeds(args.feeds)
     conn = db.connect(args.db)
@@ -174,8 +186,8 @@ def cmd_enrich(args: argparse.Namespace) -> int:
     # not stop the rest of the pipeline. A genuine stage failure - a config or database
     # problem, or an unexpected exception escaping run_enrichment itself - exits
     # non-zero via Python's normal uncaught-exception handling; run_enrichment never
-    # raises for a single article's sake.
-    return 0
+    # raises for a single article's sake. Every article failing is a stage failure too.
+    return _total_failure_exit(summary)
 
 
 def _positive_int(text: str) -> int:
@@ -412,7 +424,8 @@ def cmd_digest(args: argparse.Namespace) -> int:
     # non-zero via Python's normal uncaught-exception handling; run_digests never raises
     # for a single category's sake. (Refusing to run at all, above, still returns 1: an
     # incomplete story run is a whole-stage precondition, not an isolated failure.)
-    return 0
+    # Every category failing is a stage failure too.
+    return _total_failure_exit(summary)
 
 
 def cmd_narrate(args: argparse.Namespace) -> int:
@@ -445,8 +458,8 @@ def cmd_narrate(args: argparse.Namespace) -> int:
     # via Python's normal uncaught-exception handling; one category's trouble is
     # already isolated inside narrate_all_categories. (No fully processed run at all,
     # above, still returns 1: that's a whole-stage precondition, not an isolated
-    # failure.)
-    return 0
+    # failure.) Every category failing is a stage failure too.
+    return _total_failure_exit(summary)
 
 
 def _format_narration_outcome(o: "narrate.NarrationOutcome") -> str:

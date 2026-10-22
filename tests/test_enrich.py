@@ -488,3 +488,18 @@ def test_releases_without_the_timeline_csv_stops(tmp_path, capsys):
     assert code == 2
     assert "Cannot read the timeline CSV" in capsys.readouterr().out
 
+
+
+def test_command_exits_non_zero_when_every_article_fails(cli, capsys):
+    # One failure is isolated (exit 0, above); all of them failing - e.g. a revoked API
+    # key, 401 on every call - means the stage produced nothing, so the run must go red.
+    recent = datetime.now(timezone.utc) - timedelta(hours=1)
+    conn, run_command, _ = cli
+    add_ready(conn, "One", published=recent)
+    add_ready(conn, "Two", published=recent)
+    bad_key = llm.LLMError("AuthenticationError (HTTP 401): Incorrect API key provided")
+
+    code = run_command(FakeLLM(by_title(One=bad_key, Two=bad_key)))
+
+    assert code == 1
+    assert "Every attempt failed" in capsys.readouterr().out
