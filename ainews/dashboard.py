@@ -53,6 +53,9 @@ class CategoryView:
     headline: str | None  # None for a digest written before headlines existed
     digest: str | None
     stories: tuple[StoryView, ...]  # newest first; not ranked
+    # Whether this run has a narration for the category. Only then is its audio file
+    # (overwritten in place by each `narrate` run) this run's and not an older day's.
+    narrated: bool = False
 
     @property
     def story_count(self) -> int:
@@ -94,6 +97,7 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
         conn, run["id"], model=DEFAULT_MODEL, prompt_version=DIGEST_PROMPT_VERSION
     )
     digests = {row["category"]: row for row in digest_rows}
+    narrated = {row["category"] for row in db.narrations_for_run(conn, run["id"])}
 
     grouped: dict[str, list[tuple[str, int, StoryView]]] = {name: [] for name in CATEGORY_ORDER}
     for story in db.stories_in_run(conn, run["id"]):
@@ -117,6 +121,7 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
             headline=digest["headline"] if digest else None,
             digest=digest["summary"] if digest else None,
             stories=tuple(item[2] for item in newest_first),
+            narrated=name in narrated,
         )
 
     shown = [story for category in categories.values() for story in category.stories]

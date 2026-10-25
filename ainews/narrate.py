@@ -1,7 +1,9 @@
 """Audio narration: a short spoken briefing per category, from today's stories, via OpenAI TTS.
 
 MVP scope, deliberately small:
-    - Every non-Spam category that has stories today gets its own narration: title,
+    - Only the stories that go into the written digest are narrated (significance +
+      release of at least 2, see digest.qualifies); a category with none is skipped.
+    - Every non-Spam category that has such stories today gets its own narration: title,
       summary, and each source article's full extracted body, not the category digest,
       which is a written summary and reads badly aloud. The article text is what lets
       the script identify things the summary alone doesn't name clearly (which
@@ -19,7 +21,8 @@ MVP scope, deliberately small:
       audio itself is never stored in the database, only the script that made it.
     - A category with no stories is skipped, not a failure. A failed category (either
       call) leaves its existing audio file exactly as it was, and never stops the
-      others: one category's trouble is isolated the same way one article's or one
+      others (the dashboard only offers a category's file when this run has a narration
+      script for that category, so a skipped category's old file is never shown): one category's trouble is isolated the same way one article's or one
       story's is elsewhere in the pipeline.
     - After the categories, the ones narrated successfully in this run are joined (ffmpeg,
       no further TTS) into one full briefing, defaults.BRIEFING_AUDIO_PATH, in the
@@ -39,6 +42,7 @@ from pathlib import Path
 
 from ainews import db, enrich
 from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path
+from ainews.digest import qualifies
 from ainews.llm import LLMError, StructuredLLM, TextToSpeech, concat_audio_files
 from ainews.prompts import DIGEST_PROMPT_VERSION, NARRATE_INSTRUCTIONS, NARRATE_PROMPT_VERSION
 from ainews.stories import NON_SPAM_CATEGORIES, generate_validated
@@ -84,8 +88,10 @@ def current_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
 
 def category_stories_in_run(conn: sqlite3.Connection, run_id: int, category: str) -> list[CategoryStory]:
-    """This run's stories in one category (title, summary, source articles), newest
-    first: the same stories and titles the dashboard shows for that category."""
+    """This run's qualifying stories in one category (title, summary, source articles),
+    newest first: the same stories the written digest uses (digest.qualifies), with the
+    titles the dashboard shows. The dashboard itself still lists every story."""
+    totals = db.story_score_totals(conn, run_id)
     links_by_story: dict[int, list[sqlite3.Row]] = {}
     for link in db.story_article_links(conn, run_id):
         links_by_story.setdefault(link["story_id"], []).append(link)
@@ -96,7 +102,7 @@ def category_stories_in_run(conn: sqlite3.Connection, run_id: int, category: str
 
     found = []
     for story in db.stories_in_run(conn, run_id):
-        if story["category"] != category:
+        if story["category"] != category or not qualifies(totals.get(story["id"])):
             continue
         links = links_by_story.get(story["id"], [])
         if not links:

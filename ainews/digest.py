@@ -7,9 +7,16 @@ Independent of clustering: it reads a finished story run and never regroups anyt
       an invalid headline fails the digest just as an invalid summary does.
     - It refuses to run from a run with any story whose summary isn't ready, since a
       digest silently missing stories would mislead. Run `cluster` again first.
-    - Each category with at least one story gets one digest. The LLM is given that
-      category's story count, the total non-Spam story count, and the story counts of the
-      other categories in the same window, as context for how busy the category was. The
+    - Only stories that qualify go into a digest: significance + release (see
+      ainews.score) of at least MIN_SCORE_TOTAL. A story without a score (scoring failed,
+      or the run predates scoring) is kept rather than silently dropped. Nothing is
+      deleted: the stories, their scores and the dashboard's story lists are unchanged.
+    - Each category with at least one story gets one digest. When none of its stories
+      qualifies, that digest is the fixed NO_QUALIFYING_TEXT, written without an LLM
+      call, so the run still counts as fully processed for the dashboard and narrate.
+    - The LLM is given that category's qualifying story count, the total qualifying
+      story count, and the qualifying story counts of the other categories in the same
+      window, as context for how busy the category was. The
       UI shows the counts itself, so the digest text is told to synthesize the
       developments rather than repeat the numbers. There is no history yet, so it is also
       told never to compare with earlier days.
@@ -47,6 +54,19 @@ SCHEMA = {
 
 # The prompt asks for 6 to 12 words; this only catches an answer that has run away.
 MAX_HEADLINE_CHARS = 150
+
+# A story goes into its category's digest only when significance + release (0-2 each,
+# see ainews.score) reaches this: 0 or 1 is noise for the digest.
+MIN_SCORE_TOTAL = 2
+
+# The digest of a category none of whose stories qualifies; plain text, no LLM call.
+NO_QUALIFYING_TEXT = "No major developments in this category today."
+
+
+def qualifies(score_total: int | None) -> bool:
+    """Whether a story with this significance + release goes into the digest and the
+    narration. An unscored story (None) is kept rather than silently dropped."""
+    return score_total is None or score_total >= MIN_SCORE_TOTAL
 
 
 def build_input(category: str, stories: list[sqlite3.Row], counts: dict[str, int]) -> str:
@@ -118,7 +138,10 @@ class DigestSummary:
     incomplete_stories: int = 0  # stories without a ready summary; if > 0 nothing is done
     already_done: list[str] = field(default_factory=list)  # categories that had a digest
     no_stories: list[str] = field(default_factory=list)  # categories with nothing to digest
-    outcomes: list[DigestOutcome] = field(default_factory=list)
+    excluded_stories: int = 0  # scored below MIN_SCORE_TOTAL, so left out of the digests
+    unscored_stories: int = 0  # no score, so kept
+    no_qualifying: list[str] = field(default_factory=list)  # got NO_QUALIFYING_TEXT
+    outcomes: list[DigestOutcome] = field(default_factory=list)  # LLM digests attempted
 
     @property
     def succeeded(self) -> list[DigestOutcome]:
@@ -150,18 +173,34 @@ def run_digests(
     if summary.incomplete_stories:
         return summary  # refuse: a digest must never silently miss stories
 
+    totals = db.story_score_totals(conn, run["id"])
+    qualifying = [s for s in stories if qualifies(totals.get(s["id"]))]
+    summary.excluded_stories = len(stories) - len(qualifying)
+    summary.unscored_stories = sum(1 for s in stories if s["id"] not in totals)
+
     by_category = Counter(s["category"] for s in stories)
-    counts = {name: by_category[name] for name in NON_SPAM_CATEGORIES if by_category[name]}
+    qualifying_by_category = Counter(s["category"] for s in qualifying)
+    counts = {name: qualifying_by_category[name] for name in NON_SPAM_CATEGORIES if qualifying_by_category[name]}
     summary.no_stories = [name for name in NON_SPAM_CATEGORIES if not by_category[name]]
 
-    for category in counts:
+    for category in (name for name in NON_SPAM_CATEGORIES if by_category[name]):
         if db.digest_exists(
             conn, run_id=run["id"], category=category, model=llm.model, prompt_version=prompt_version
         ):
             summary.already_done.append(category)
             continue
 
-        category_stories = [s for s in stories if s["category"] == category]
+        category_stories = [s for s in qualifying if s["category"] == category]
+        if not category_stories:
+            db.insert_digest(
+                conn, run_id=run["id"], category=category, story_count=0, total_story_count=len(qualifying),
+                headline=None, summary=NO_QUALIFYING_TEXT, model=llm.model, prompt_version=prompt_version,
+                created_at=now or datetime.now(timezone.utc),
+            )  # fmt: skip
+            conn.commit()
+            summary.no_qualifying.append(category)
+            continue
+
         result, error = generate_validated(
             llm,
             instructions=INSTRUCTIONS,
@@ -176,7 +215,7 @@ def run_digests(
                 run_id=run["id"],
                 category=category,
                 story_count=len(category_stories),
-                total_story_count=len(stories),
+                total_story_count=len(qualifying),
                 headline=result.headline,
                 summary=result.summary,
                 model=llm.model,

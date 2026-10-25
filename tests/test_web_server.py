@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ainews import db, defaults
@@ -32,10 +33,11 @@ def test_payload_with_a_completed_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # payload() reads ./ainews.db, ./feeds.toml and ./audio/, like the command line does
     (tmp_path / "feeds.toml").write_text(FEEDS_TOML, encoding="utf-8")
     conn = db.connect(tmp_path / "ainews.db")
-    add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
+    run = add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
+    narrate_for(conn, run, "Research")
     conn.close()
     (tmp_path / "audio").mkdir()
-    for name in ("research.mp3", "briefing.mp3"):
+    for name in ("research.mp3", "briefing.mp3", "business.mp3"):  # business.mp3: an older day's
         (tmp_path / "audio" / name).write_bytes(b"fake-mp3-bytes")
 
     data = server.payload()["data"]
@@ -52,7 +54,30 @@ def test_payload_with_a_completed_run(tmp_path, monkeypatch):
     assert research["audio"].startswith("/audio/research.mp3?v=")
     assert [story["title"] for story in research["stories"]] == ["A research article"]
     business = data["categories"][names.index("Business")]
-    assert business["stories"] == [] and business["audio"] is None  # no stories, no narration file
+    assert business["stories"] == [] and business["audio"] is None  # not narrated in this run
+
+
+def narrate_for(conn, run, category):
+    db.insert_narration(conn, run_id=run, category=category, script="S.", model="m", prompt_version="p",
+                        created_at=datetime(2026, 9, 20, tzinfo=timezone.utc))  # fmt: skip
+    conn.commit()
+
+
+def test_audio_left_over_from_an_older_run_is_never_offered(tmp_path, monkeypatch):
+    # narrate skips a category with no qualifying stories, and its file from an older
+    # day stays on disk (and in the repo); nothing narrated this run means no briefing either.
+    monkeypatch.chdir(tmp_path)
+    conn = db.connect(tmp_path / "ainews.db")
+    add_run(conn, [("Research", "A research story.", [add_article(conn, "A research article")])])
+    conn.close()
+    (tmp_path / "audio").mkdir()
+    for name in ("research.mp3", "briefing.mp3"):
+        (tmp_path / "audio" / name).write_bytes(b"older-day")
+
+    data = server.payload()["data"]
+
+    assert data["briefing_audio"] is None
+    assert all(category["audio"] is None for category in data["categories"])
 
 
 def test_snapshot_writes_the_same_json_the_server_serves(tmp_path, monkeypatch):

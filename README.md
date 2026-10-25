@@ -1,6 +1,6 @@
 # ainews
 
-A personal AI news aggregator. It collects AI news from RSS feeds, gets each article's text, uses an LLM to classify and summarize articles, groups articles about the same event into stories, and writes a short digest per category.
+A personal AI news aggregator. It collects AI news from RSS feeds, gets each article's text, uses an LLM to classify and summarize articles, groups articles about the same event into stories, scores each story for significance and release relevance, and writes a short digest and a spoken briefing per category from the stories that score high enough.
 See the site here: https://www.dailyainewsbriefing.com/
 
 **Status:** the pipeline stages below are implemented and tested, and a read-only React dashboard (`web/`, hosted on Azure Static Web Apps) displays their results.
@@ -15,7 +15,7 @@ flowchart LR
 
     subgraph STAGES["Pipeline stages: separate CLI commands, run in this order, no direct calls between them"]
         direction LR
-        ING["1 · ingest"] ~~~ EXT["2 · extract"] ~~~ ENR["3 · enrich"] ~~~ CLU["4 · cluster"] ~~~ DIG["5 · digest"]
+        ING["1 · ingest"] ~~~ EXT["2 · extract"] ~~~ ENR["3 · enrich"] ~~~ CLU["4 · cluster"] ~~~ SCO["5 · score"] ~~~ DIG["6 · digest"] ~~~ NAR["7 · narrate"]
     end
 
     LLM["llm.py<br/>(the only code that talks to OpenAI)"]
@@ -24,14 +24,14 @@ flowchart LR
 
     RSS --> ING
     WEB --> EXT
-    ENR & CLU & DIG -.-> LLM
+    ENR & CLU & SCO & DIG & NAR -.-> LLM
     LLM -.-> OAI
     STAGES <-->|"every stage reads its input from<br/>and writes its output to SQLite"| DB
     DB -.->|"read-only"| UI
 ```
 
 - **Stages hand off only through SQLite.** Each is an independent CLI command with no in-memory hand-off, so any stage can be rerun, or run on its own schedule, without the others. There is no scheduler or orchestrator yet; you run the commands yourself.
-- **Only three stages use an LLM** (`enrich`, `cluster`, `digest`). `ingest`, `extract` and `inspect-feed` are deterministic.
+- **Five stages use an LLM** (`enrich`, `cluster`, `score`, `digest`, `narrate`). `ingest`, `extract` and `inspect-feed` are deterministic.
 - **Results are versioned, not overwritten.** LLM output is keyed by model and prompt version, so a new prompt adds rows next to the old ones. A stage skips work it has already done.
 - **Failures are isolated and retryable.** One failing article, story or category never stops the others, and failed work is retried on the next run, as long as it is still within the 24h window. There is no backoff, attempt limit or queue, and nothing is retried forever: once an article ages out of the window it is simply left as it is.
 - **Provider isolation.** Only `ainews/llm.py` imports a provider SDK - OpenAI for structured generation, ElevenLabs for text-to-speech (a test enforces this); the stages talk to two small interfaces, `StructuredLLM` and `TextToSpeech`.
@@ -49,21 +49,24 @@ flowchart LR
     EXT["extract<br/>article → clean body<br/>fulltext or feed_content"]
     ENR["enrich<br/>body → category + summary<br/>+ English title if needed<br/>+ released models"]
     CLU["cluster<br/>non-Spam articles → stories<br/>combined summary if 2+ articles"]
-    DIG["digest<br/>stories → one digest per category"]
+    SCO["score<br/>story → significance 0-2<br/>+ release relevance 0-2"]
+    DIG["digest<br/>stories with S+R ≥ 2 → one digest per category"]
     UI["React dashboard<br/>read-only"]
 
     ART1[("articles<br/>metadata · feed_text")]
     ART2[("articles<br/>+ body")]
     ENRT[("enrichments<br/>category · summary · english_title · released_models")]
     STO[("story_runs · stories<br/>story_articles link back to articles")]
+    SCT[("story_scores<br/>significance · release · reason")]
     DGT[("digests<br/>headline · summary")]
 
     INS -.->|"you pick the strategy"| FT
     FT -.->|"strategy"| EXT
-    FT --> ING --> ART1 --> EXT --> ART2 --> ENR --> ENRT --> CLU --> STO --> DIG --> DGT
+    FT --> ING --> ART1 --> EXT --> ART2 --> ENR --> ENRT --> CLU --> STO --> SCO --> SCT --> DIG --> DGT
+    STO --> DIG
     STO -.->|"read-only"| UI
     DGT -.->|"read-only"| UI
-    ENR & CLU & DIG -.-> LLM
+    ENR & CLU & SCO & DIG -.-> LLM
 ```
 
 *Cylinders are data stored in SQLite. `articles` appears twice because it is one table shown in two states: after `ingest`, and after `extract` has filled in `body`. The other cylinders are separate tables. Each stage reads what the one before it stored and writes the next; the command table below gives the exact reads and writes.*
@@ -75,9 +78,10 @@ flowchart LR
 | `extract` | `articles` in the 24h window without a ready body, `feeds.toml` | per feed: `fulltext` (fetch page, Trafilatura) or `feed_content` (use `feed_text`); cleans the text | `articles.body`, `body_status`, `body_error` | no |
 | `enrich` | articles in the 24h window with a ready body | one call per article: category + summary + an English title when the title isn't English + the foundation models whose release it announces | `enrichments` | yes |
 | `cluster` | enriched non-Spam articles from the last 24h | groups articles that describe the same event into stories; multi-article stories get a combined summary and category | `story_runs`, `stories`, `story_articles` | yes |
-| `digest` | the stories of a complete story run | one call per category that has stories: a headline and a summary | `digests` | yes |
-| `narrate` | today's stories (title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (ElevenLabs, voice `1KW5b0DZhKA18MyNj4Kb`, model `eleven_multilingual_v2`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
-| `python -m web.server` | the newest fully processed story run, its digests, its articles' URLs, and `audio/*.mp3` | serves them to the React dashboard as JSON, on localhost; with `--snapshot PATH`, writes that JSON to a file instead (how the deployed site gets its data); runs nothing | nothing (read-only connection); the snapshot file with `--snapshot` | no |
+| `score` | the ready stories of a story run (latest, `--run`, or `--all`) without a score | batches of 20 stories per call: significance 0-2 and release relevance 0-2 from each story's own content, with a short reason | `story_scores` | yes |
+| `digest` | the stories of a complete story run, and their scores | one call per category with qualifying stories (significance + release ≥ 2): a headline and a summary; a category with none gets a fixed text, no call | `digests` | yes |
+| `narrate` | today's qualifying stories (the same ones the digest uses: title, summary, and each source article's extracted body) per category, from the newest fully processed run | per non-Spam category with qualifying stories: one call writes a ~200-250 word spoken briefing script and persists it, a second turns that exact script into audio (ElevenLabs, voice `1KW5b0DZhKA18MyNj4Kb`, model `eleven_multilingual_v2`); one category's failure never stops the others | `narrations` (script + run, category, model, prompt_version) and `audio/<category>.mp3` per category (overwritten) | yes |
+| `python -m web.server` | the newest fully processed story run, its digests and narrations, its articles' URLs, and `audio/*.mp3` | serves them to the React dashboard as JSON, on localhost; with `--snapshot PATH`, writes that JSON to a file instead (how the deployed site gets its data); runs nothing | nothing (read-only connection); the snapshot file with `--snapshot` | no |
 
 ## Stage details
 
@@ -89,11 +93,13 @@ flowchart LR
 
 **cluster** (`stories.py`). Input is the last 24h (`published_at`, else `fetched_at`) of articles enriched under the current model and prompt, minus Spam. One call groups them from **title and summary only** (the model isn't shown categories, and category equality isn't required); it returns only groups of two or more, so anything unmentioned is its own story and uncertainty defaults to "separate". Single-article stories copy their article's category and summary; each multi-article story gets one more call for a combined summary and category. The result is an immutable **story run**; an unchanged input finds the existing run instead of regrouping, and failed story summaries are retried without regrouping.
 
-**digest** (`digest.py`). Works from a story run (latest, or `--run`) and **refuses to run if any story has no ready summary**. Each category with stories gets one digest made from its *stories*: a short headline (asked to be 6 to 12 words, engaging but strictly factual) and a summary, from the same call and stored together. An invalid headline fails the digest like an invalid summary, and it is retried on the next run. The model receives the category's story count, the total non-Spam count, and the other categories' counts as context, but is told to synthesize developments rather than repeat numbers; the dashboard works out the counts it shows itself, from the stories (`story_count` and `total_story_count` are stored with the digest as a record). Categories with no stories get no digest.
+**score** (`score.py`). Gives every story two independent scores, 0 to 2: **significance** (0 noise, 1 real news with limited reach, 2 a definite development that changes the wider AI ecosystem) and **release relevance** (0 no AI release, 1 minor updates and upcoming releases, 2 a new model, product or major capability available now), plus a reason of at most 20 words. Each story is judged only on its own title, summary and other article titles, never its source, article count or history. The prompt (`prompts.py`) holds the criteria and few-shot examples taken from a hand-reviewed sample. Stories go 20 to a call; a story that already has a score is skipped unless `--rescore` is given. A failed batch, or a story the answer leaves out, stores nothing and is scored on the next run. Scoring only stores; the filtering happens in digest and narrate.
 
-**dashboard** (`dashboard.py`, `web/`). A read-only page: a header (last updated in Copenhagen time, the 24h window, story and article counts), a player for the full briefing, and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, the category's narration, and a collapsed "View N stories" list of its stories (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `dashboard.py` builds what is shown from queries in `db.py`; `web/server.py` turns that into JSON with no SQL, pipeline or provider code, and the React app (`web/src/`) only renders the JSON. The same JSON comes from the local server during development and from a static snapshot in production (see Deployment).
+**digest** (`digest.py`). Works from a story run (latest, or `--run`) and **refuses to run if any story has no ready summary**. Only **qualifying** stories go into a digest: significance + release of at least 2 (`MIN_SCORE_TOTAL`); a story without a score is kept rather than silently dropped. Each category with qualifying stories gets one digest made from them: a short headline (asked to be 6 to 12 words, engaging but strictly factual) and a summary, from the same call and stored together. An invalid headline fails the digest like an invalid summary, and it is retried on the next run. A category whose stories all score below 2 gets a fixed digest, "No major developments in this category today.", with no LLM call, so the run still counts as fully processed. The model receives the category's qualifying story count, the total qualifying count, and the other categories' qualifying counts as context, but is told to synthesize developments rather than repeat numbers; the dashboard works out the counts it shows itself, from the stories (`story_count` and `total_story_count`, of qualifying stories, are stored with the digest as a record). Nothing is deleted: every story and score stays in the database, and the dashboard still lists every story. Categories with no stories get no digest.
 
-**narrate** (`narrate.py`). Every non-Spam category that has stories today gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to ElevenLabs (model `eleven_multilingual_v2`, voice `1KW5b0DZhKA18MyNj4Kb`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no stories is skipped; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
+**dashboard** (`dashboard.py`, `web/`). A read-only page: a header (last updated in Copenhagen time, the 24h window, story and article counts), a player for the full briefing, and a 2×3 grid of the six non-Spam categories. Each cell shows the category name, the headline, the digest, the category's narration, and a collapsed "View N stories" list of all its stories, including those left out of the digest (title, summary, and each source linked to its article); a category with no stories says so, and Spam is never shown. It displays the newest story run that is **fully processed**: every story summarized, and every category digested with the current digest prompt and default model, so a half-finished run, or a digest from an old experimental prompt, is never shown. Stories are newest first, with no ranking, and a story's title is its earliest article's title, in English (stories have none of their own): the translation from the enrichments the story run was built from when the title wasn't English, otherwise the article's own title. `dashboard.py` builds what is shown from queries in `db.py`; `web/server.py` turns that into JSON with no SQL, pipeline or provider code, and the React app (`web/src/`) only renders the JSON. A category's audio, and the full briefing, are offered only when the displayed run has a narration for them, so an older day's file left in `audio/` is never played under today's digest. The same JSON comes from the local server during development and from a static snapshot in production (see Deployment).
+
+**narrate** (`narrate.py`). Every non-Spam category with qualifying stories today (the same filter as digest, `digest.qualifies`) gets its own narration, two calls each. A category's stories go to an LLM call that writes a short spoken briefing script: each story's title, summary, and the full extracted text of its source article(s) (`articles.body`, capped per article so the request stays a sane size) - the article text is what lets the script identify things the summary alone leaves vague, like which institution or company is involved, without inventing anything the source material doesn't say. It picks 2 to 3 developments and explains them properly rather than skimming many, in a casual tone, capped at roughly 200-250 words since it is read aloud, never shown as text. The script is persisted to `narrations` (tied to the story run, category, model and prompt version, like a digest) **before** it is sent to ElevenLabs (model `eleven_multilingual_v2`, voice `1KW5b0DZhKA18MyNj4Kb`) via `llm.py`, so the exact text behind any given `audio/<category>.mp3` is always on record, even if TTS then fails. Unlike digests, there is no dedup: `narrate` is meant to be rerun for a fresh take, and always writes a fresh script (a new `narrations` row) and a fresh take of the audio, rather than being skipped because a narration already exists for that run. Each category has one fixed file, e.g. `audio/research.mp3`, `audio/product-release.mp3` (`defaults.audio_path`, a simple slug of the category name); always overwritten, and only the script is versioned, never the audio itself. A category with no qualifying stories is skipped, and its old file is left on disk but not shown; a failed category (either call) leaves its existing audio file untouched and never stops the others. Part of the scheduled GitHub Actions run - see Deployment below.
 
 **inspect-feed** (`inspect_feed.py`). Onboarding aid for a new feed. It reuses the same fetching and extraction code as `extract`, so it evaluates what the pipeline would actually do, and it leaves choosing a strategy (and editing `feeds.toml`) to you.
 
@@ -106,6 +112,7 @@ flowchart LR
 | `story_runs` | one clustering snapshot: models, versions, window, input fingerprint | unique on models, versions and input fingerprint |
 | `stories` | a story's `category`, `summary`, `summary_status`, `grouping_reason` | belongs to a run |
 | `story_articles` | which articles form each story | unique `(run, article)`: an article is in one story per run |
+| `story_scores` | a story's `significance` and `release` (0-2 each), `reason`, `model`, `prompt_version` | one row per story; replaced only with `score --rescore` |
 | `digests` | per category: `story_count`, `total_story_count`, `headline`, `summary` (`headline` is NULL on digests written before headlines existed) | unique `(run, category, model, prompt_version)` |
 | `narrations` | a generated `script` per category with its `category`, `model`, `prompt_version` | belongs to a run; **no** unique constraint - see narrate below |
 
@@ -119,11 +126,12 @@ Foreign keys cascade on delete. The schema, migrations and every query live in `
 | extract | article | `body_status = ready`, or the article has aged out of the 24h window | recorded as `failed` with the error; retried next run while still in the window |
 | enrich | article | enrichment exists for `(model, prompt_version)`, or the article has aged out of the 24h window | nothing stored; retried next run while still in the window |
 | cluster | 24h snapshot | a run with the same models, versions and input exists | grouping: nothing stored; story summary: marked `failed`, retried without regrouping |
+| score | story | it already has a score (unless `--rescore`) | nothing stored; retried next run |
 | digest | `(run, category)` | digest exists for `(model, prompt_version)` | nothing stored; retried next run |
 
 Each LLM stage has its own model and prompt version. Changing either makes the affected work eligible again alongside the old results; nothing is deleted.
 
-**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run), or enrich, digest or narrate failing on *every* item it attempted with none succeeding (e.g. a revoked API key) - exits non-zero.
+**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run), or enrich, score, digest or narrate failing on *every* item it attempted with none succeeding (e.g. a revoked API key) - exits non-zero.
 
 ## Configuration
 
@@ -131,7 +139,7 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 - **`.env`**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard's server use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso, read-only is enforced by the token, not by the code: the deploy's snapshot step currently reuses the pipeline's `TURSO_AUTH_TOKEN` secret, so a separate read-only token for it would be safer. The two databases are independent; nothing syncs them.
 - **`web/`**: the React dashboard (Vite, TypeScript, Tailwind CSS, shadcn/ui). In development, `vite.config.ts` proxies `/dashboard.json` and `/audio` to `web/server.py` on `localhost:8000`.
-- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v6`, cluster `v1`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
+- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v6`, cluster `v2`, score `s3`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
@@ -145,8 +153,9 @@ python -m ainews ingest
 python -m ainews extract
 python -m ainews enrich              # --limit N to cap a run
 python -m ainews cluster
+python -m ainews score               # --all to backfill every run, --rescore to replace scores
 python -m ainews digest
-python -m ainews narrate             # one briefing script + MP3 per category with stories, audio/<category>.mp3
+python -m ainews narrate             # one briefing script + MP3 per category with qualifying stories, audio/<category>.mp3
 python -m ainews releases           # read-only: detected model releases vs. the AI Timeline CSV (--since YYYY-MM-DD)
 
 python -m web.server                  # the dashboard's data and audio, on localhost:8000 (read-only)
@@ -161,8 +170,8 @@ Both dashboard commands run from the project folder. The server reads the local 
 ## Deployment
 
 GitHub Actions (`.github/workflows/daily-ai-news.yml`) runs the whole pipeline daily against the
-hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, digest,
-then narrate. No `continue-on-error` is needed for narrate: an isolated per-category
+hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, score,
+digest, then narrate. No `continue-on-error` is needed for narrate: an isolated per-category
 script or TTS failure already exits `0` and is reported, rather than stopping the rest
 of the job or skipping the commit of the categories that *did* succeed.
 
@@ -204,7 +213,8 @@ ainews/
   extract.py      article bodies (fulltext / feed_content)
   enrich.py       category, summary, English title and released models per article
   stories.py      story clustering
-  digest.py       per-category digests
+  score.py        significance and release scores per story
+  digest.py       per-category digests from qualifying stories
   llm.py          the only provider code (OpenAI structured JSON calls, ElevenLabs text-to-speech)
   narrate.py      per-category stories -> briefing script -> audio/<category>.mp3
   prompts.py      every prompt's instructions and prompt version (no imports)

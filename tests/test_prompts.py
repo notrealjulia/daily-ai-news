@@ -6,7 +6,7 @@ from it, not what that constant says. A stage importing the wrong prompt would o
 go unnoticed: nothing else in the suite compares instructions text across stages.
 """
 
-from ainews import digest, enrich, prompts, stories
+from ainews import digest, enrich, prompts, score, stories
 
 
 def test_enrich_uses_its_own_prompt():
@@ -26,11 +26,18 @@ def test_digest_uses_its_own_prompt():
     assert digest.DIGEST_PROMPT_VERSION == prompts.DIGEST_PROMPT_VERSION
 
 
-def test_the_three_prompt_versions_are_independent():
-    # Not a hard requirement, but three unrelated version counters sharing a value by
+def test_score_uses_its_own_prompt():
+    assert score.INSTRUCTIONS is prompts.SCORE_INSTRUCTIONS
+    assert score.SCORE_PROMPT_VERSION == prompts.SCORE_PROMPT_VERSION
+    assert all(e.reason in prompts.SCORE_INSTRUCTIONS for e in prompts.SCORE_EXAMPLES)
+
+
+def test_the_prompt_versions_are_independent():
+    # Not a hard requirement, but unrelated version counters sharing a value by
     # accident (e.g. a copy-paste of the wrong constant) is the exact mistake worth
     # catching here.
-    versions = [prompts.ENRICH_PROMPT_VERSION, prompts.STORY_PROMPT_VERSION, prompts.DIGEST_PROMPT_VERSION]
+    versions = [prompts.ENRICH_PROMPT_VERSION, prompts.STORY_PROMPT_VERSION, prompts.DIGEST_PROMPT_VERSION,
+                prompts.SCORE_PROMPT_VERSION]  # fmt: skip
     assert len(set(versions)) == len(versions)
 
 

@@ -127,6 +127,18 @@ CREATE TABLE IF NOT EXISTS digests (
     UNIQUE (run_id, category, model, prompt_version)
 );
 
+-- Significance and release relevance of a story (ainews.score), 0-2 each. One row per
+-- story: scoring skips stories that have one, and only an explicit --rescore replaces it.
+CREATE TABLE IF NOT EXISTS story_scores (
+    story_id       INTEGER PRIMARY KEY REFERENCES stories (id) ON DELETE CASCADE,
+    significance   INTEGER NOT NULL CHECK (significance IN (0, 1, 2)),
+    release        INTEGER NOT NULL CHECK (release IN (0, 1, 2)),
+    reason         TEXT NOT NULL,
+    model          TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    created_at     TEXT NOT NULL
+);
+
 -- A generated spoken-narration script (ainews.narrate), tied to the story run and
 -- category it was written from - MVP: category is always 'Research', but the column
 -- mirrors digests' so this needs no schema change if that widens later. Unlike digests,
@@ -680,7 +692,7 @@ def insert_digest(
     category: str,
     story_count: int,
     total_story_count: int,
-    headline: str,
+    headline: str | None,
     summary: str,
     model: str,
     prompt_version: str,
@@ -697,6 +709,70 @@ def insert_digest(
         (run_id, category, story_count, total_story_count, headline, summary, model,
          prompt_version, _format_timestamp(created_at)),
     )  # fmt: skip
+    return cursor.rowcount == 1
+
+
+# --- Story scores ------------------------------------------------------------
+
+
+def stories_to_score(conn: sqlite3.Connection, run_id: int | None) -> list[sqlite3.Row]:
+    """Every story with a ready summary in a run (every run when run_id is None), with
+    `scored` set when it already has a score."""
+    return conn.execute(
+        """
+        SELECT s.id, s.run_id, s.summary,
+               EXISTS (SELECT 1 FROM story_scores sc WHERE sc.story_id = s.id) AS scored
+        FROM stories s
+        WHERE s.summary_status = 'ready' AND (? IS NULL OR s.run_id = ?)
+        ORDER BY s.id
+        """,
+        (run_id, run_id),
+    ).fetchall()
+
+
+def story_score_totals(conn: sqlite3.Connection, run_id: int) -> dict[int, int]:
+    """story id -> significance + release, for the stories in a run that have a score."""
+    return {
+        row["story_id"]: row["total"]
+        for row in conn.execute(
+            """
+            SELECT sc.story_id, sc.significance + sc.release AS total
+            FROM story_scores sc JOIN stories s ON s.id = sc.story_id
+            WHERE s.run_id = ?
+            """,
+            (run_id,),
+        )
+    }
+
+
+def save_story_score(
+    conn: sqlite3.Connection,
+    *,
+    story_id: int,
+    significance: int,
+    release: int,
+    reason: str,
+    model: str,
+    prompt_version: str,
+    created_at: datetime,
+    replace: bool = False,
+) -> bool:
+    """Store a story's score. An existing score is kept (returns False) unless replace=True."""
+    on_conflict = (
+        "DO UPDATE SET significance = excluded.significance, release = excluded.release, "
+        "reason = excluded.reason, model = excluded.model, "
+        "prompt_version = excluded.prompt_version, created_at = excluded.created_at"
+        if replace
+        else "DO NOTHING"
+    )
+    cursor = conn.execute(
+        f"""
+        INSERT INTO story_scores (story_id, significance, release, reason, model, prompt_version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (story_id) {on_conflict}
+        """,
+        (story_id, significance, release, reason, model, prompt_version, _format_timestamp(created_at)),
+    )
     return cursor.rowcount == 1
 
 

@@ -124,6 +124,41 @@ def test_category_stories_in_run_is_empty_for_a_category_with_no_stories(conn):
     assert narrate.category_stories_in_run(conn, run, "Research") == []
 
 
+def score(conn, scores: dict[int, tuple[int, int]]) -> None:
+    """story id -> (significance, release)."""
+    for story_id, (significance, release) in scores.items():
+        db.save_story_score(
+            conn, story_id=story_id, significance=significance, release=release, reason="r",
+            model="score-model", prompt_version="s3", created_at=NOW,
+        )  # fmt: skip
+    conn.commit()
+
+
+def test_only_the_stories_the_digest_uses_are_narrated(conn):
+    run = add_run(conn, stories={"Research": [("Kept S1 R1", "S1."), ("Left out S1 R0", "S2."), ("Kept unscored", "S3.")]})
+    score(conn, {1: (1, 1), 2: (1, 0)})
+
+    titles = [s.title for s in narrate.category_stories_in_run(conn, run, "Research")]
+
+    assert titles == ["Kept unscored", "Kept S1 R1"]
+
+
+def test_a_category_without_qualifying_stories_is_skipped_and_its_old_audio_left_alone(conn, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    add_run(conn, stories={"Research": [("Big", "S1.")], "Other": [("Noise", "S2.")]})
+    score(conn, {1: (2, 2), 2: (0, 1)})
+    old = tmp_path / defaults.audio_path("Other")
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"yesterday")
+    llm_fake = FakeLLM()
+
+    summary = narrate.narrate_all_categories(conn, llm_fake, FakeTTS(), now=NOW)
+
+    assert [o.category for o in summary.succeeded] == ["Research"] and "Other" in summary.no_stories
+    assert len(llm_fake.calls) == 1 and "Noise" not in llm_fake.calls[0]
+    assert old.read_bytes() == b"yesterday" and summary.briefing == ["Research"]
+
+
 def test_category_stories_in_run_attaches_each_storys_article_bodies(conn):
     run = add_run(conn, stories={"Research": [
         ("With body", "S1.", "The full extracted article text, naming the institute."),

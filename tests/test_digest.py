@@ -204,6 +204,66 @@ def test_an_invalid_headline_or_summary_is_rejected_not_repaired(answer, message
         digest.parse_digest(answer)
 
 
+# --- the significance + release filter ---------------------------------------
+
+
+def give_scores(conn, scores: dict[int, tuple[int, int]]) -> None:
+    """story id -> (significance, release)."""
+    for story_id, (significance, release) in scores.items():
+        db.save_story_score(
+            conn, story_id=story_id, significance=significance, release=release, reason="r",
+            model="score-model", prompt_version="s3", created_at=NOW,
+        )  # fmt: skip
+    conn.commit()
+
+
+def test_only_stories_scoring_at_least_2_go_into_the_digests_and_nothing_is_deleted(conn):
+    run_id = make_run(
+        conn,
+        ("Research", "Kept: S1 R1.", 1, "ready"),  # story 1
+        ("Research", "Left out: S1 R0.", 1, "ready"),  # story 2
+        ("Research", "Kept: never scored.", 1, "ready"),  # story 3
+        ("Industry News", "Left out: S0 R0.", 1, "ready"),  # story 4
+        ("Business", "Kept: S0 R2.", 1, "ready"),  # story 5
+    )
+    give_scores(conn, {1: (1, 1), 2: (1, 0), 4: (0, 0), 5: (0, 2)})
+    fake = FakeLLM()
+
+    summary = digest.run_digests(conn, fake, now=NOW)
+
+    assert [c["category"] for c in fake.calls] == ["Research", "Business"]  # none for Industry News
+    research = fake.calls[0]["input_text"]
+    assert "Kept: S1 R1." in research and "Kept: never scored." in research
+    assert "Left out" not in "".join(c["input_text"] for c in fake.calls)
+    assert "2 of 3" in research and "Business 1" in research and "Industry News" not in research
+    assert digest_rows(conn) == [
+        ("Research", 2, 3, "Headline for Research", "Digest of Research.", "digest-model", digest.DIGEST_PROMPT_VERSION),
+        ("Business", 1, 3, "Headline for Business", "Digest of Business.", "digest-model", digest.DIGEST_PROMPT_VERSION),
+        ("Industry News", 0, 3, None, digest.NO_QUALIFYING_TEXT, "digest-model", digest.DIGEST_PROMPT_VERSION),
+    ]  # fmt: skip
+    assert (summary.excluded_stories, summary.unscored_stories, summary.no_qualifying) == (2, 1, ["Industry News"])
+    assert len(db.stories_in_run(conn, run_id)) == 5 and len(db.story_score_totals(conn, run_id)) == 4
+    # Every category with stories has a digest, so the run is complete for the dashboard and narrate.
+    assert db.latest_dashboard_run(conn, digest_model="digest-model", digest_prompt_version=digest.DIGEST_PROMPT_VERSION)["id"] == run_id  # fmt: skip
+
+
+def test_a_day_with_no_qualifying_stories_needs_no_llm_and_still_completes(monkeypatch, tmp_path, capsys):
+    db_path = tmp_path / "t.db"
+    conn = db.connect(db_path)
+    run_id = make_run(conn, ("Research", "Minor.", 1, "ready"), ("Other", "Noise.", 1, "ready"))
+    give_scores(conn, {1: (1, 0), 2: (0, 0)})
+    fake = FakeLLM()
+    monkeypatch.setattr(llm, "create", lambda model: fake)
+
+    assert main(["digest", "--db", str(db_path)]) == 0
+    out = capsys.readouterr().out
+
+    assert fake.calls == []
+    assert [(r[0], r[4]) for r in digest_rows(conn)] == [("Research", digest.NO_QUALIFYING_TEXT), ("Other", digest.NO_QUALIFYING_TEXT)]  # fmt: skip
+    assert shows(out, r"left out \(S\+R < 2\):\s+2\b") and shows(out, r"no qualifying stories:\s+2\b")
+    assert db.latest_dashboard_run(conn, digest_model="digest-model", digest_prompt_version=digest.DIGEST_PROMPT_VERSION)["id"] == run_id  # fmt: skip
+
+
 # --- the command -------------------------------------------------------------
 
 

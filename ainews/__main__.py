@@ -1,4 +1,4 @@
-"""Command line entry point: `python -m ainews ingest | extract | enrich | narrate | releases | inspect-feed`."""
+"""Command line entry point: `python -m ainews ingest | extract | enrich | cluster | digest | score | narrate | releases | inspect-feed`."""
 
 import argparse
 import csv
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from ainews import db, ingest
 
 if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs the OpenAI SDK
-    from ainews import digest, enrich, extract, narrate, stories
+    from ainews import digest, enrich, extract, narrate, score, stories
 
 
 def _total_failure_exit(summary) -> int:
@@ -428,6 +428,80 @@ def cmd_digest(args: argparse.Namespace) -> int:
     return _total_failure_exit(summary)
 
 
+def cmd_score(args: argparse.Namespace) -> int:
+    from ainews import llm, score
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    try:
+        client = llm.create(args.model or llm.DEFAULT_MODEL)
+    except llm.LLMConfigError as e:
+        print(f"Cannot score: {e}")
+        return 2
+    conn = db.connect(args.db)
+
+    if args.all:
+        run_id, scope = None, "every story run"
+    else:
+        run = db.get_story_run(conn, args.run)
+        if run is None:
+            print(
+                f"No story run with id {args.run}."
+                if args.run is not None
+                else "No story run to score. Run `python -m ainews cluster` first."
+            )
+            return 1
+        run_id, scope = run["id"], f"story run #{run['id']} (window ending {run['window_end']})"
+    print(f"Model: {client.model}   score prompt: {score.SCORE_PROMPT_VERSION}")
+    print(f"Scoring {scope}" + (", replacing existing scores" if args.rescore else "") + "\n")
+
+    summary = score.run_scoring(
+        conn,
+        client,
+        run_id=run_id,
+        rescore=args.rescore,
+        report=lambda outcome: print(_format_score_outcome(outcome), flush=True),
+    )
+
+    print()
+    for line in _format_scoring_summary(summary):
+        print(line)
+    # A failed batch or a story left out of an answer (reported above) stores nothing and
+    # is scored on the next run, so it must not stop the rest of the pipeline. A genuine
+    # stage failure - a config or database problem, or an unexpected exception escaping
+    # run_scoring itself - exits non-zero via Python's normal uncaught-exception handling.
+    # Every story failing is a stage failure too.
+    return _total_failure_exit(summary)
+
+
+def _format_score_outcome(o: "score.ScoreOutcome") -> str:
+    title = o.title if len(o.title) <= 60 else o.title[:59] + "…"
+    if o.ok:
+        return f"  {'ok':<7} S{o.score.significance} R{o.score.release}  {title}  -  {o.score.reason}"
+    return f"  {'FAILED':<7} {title}  -  {o.error}"
+
+
+def _format_scoring_summary(s: "score.ScoringSummary") -> list[str]:
+    def spread(key: str) -> str:
+        counts = Counter(getattr(o.score, key) for o in s.succeeded)
+        return "/".join(str(counts[v]) for v in (0, 1, 2))
+
+    lines = [
+        "SUMMARY",
+        f"  already scored (skipped):   {s.already_scored:>4}",
+        f"  scored this run:            {len(s.succeeded):>4}"
+        + (f"  (0/1/2: significance {spread('significance')}, release {spread('release')})" if s.succeeded else ""),
+        f"  failed this run:            {len(s.failed):>4}",
+    ]
+    if s.failed:
+        lines.append("")
+        lines.append("Retryable failures (nothing was stored; run `python -m ainews score` again):")
+        for reason, count in Counter(o.error for o in s.failed).most_common():
+            lines.append(f"  {count} x {reason}")
+    return lines
+
+
 def cmd_narrate(args: argparse.Namespace) -> int:
     from ainews import llm, narrate
 
@@ -476,7 +550,7 @@ def _format_narration_summary(s: "narrate.NarrationSummary") -> list[str]:
         "SUMMARY",
         f"  narrated this run:          {len(s.succeeded):>4}",
         f"  failed this run:            {len(s.failed):>4}",
-        f"  categories with no stories: {len(s.no_stories):>4}",
+        f"  no qualifying stories:      {len(s.no_stories):>4}  (S+R < 2 or no stories; skipped)",
     ]
     if s.briefing:
         lines.append(f"  full briefing:              {', '.join(s.briefing)}")
@@ -501,14 +575,21 @@ def _format_digest_outcome(o: "digest.DigestOutcome") -> str:
 
 
 def _format_digest_summary(s: "digest.DigestSummary") -> list[str]:
+    from ainews import digest
+
     lines = [
         "SUMMARY",
         f"  stories in the run:         {s.total_stories:>4}",
+        f"  left out (S+R < {digest.MIN_SCORE_TOTAL}):         {s.excluded_stories:>4}"
+        + (f"  ({s.unscored_stories} unscored kept in)" if s.unscored_stories else ""),
         f"  digests written this run:   {len(s.succeeded):>4}",
         f"  failed this run:            {len(s.failed):>4}",
         f"  already had a digest:       {len(s.already_done):>4}  (skipped)",
         f"  categories with no stories: {len(s.no_stories):>4}",
     ]
+    if s.no_qualifying:
+        lines.append(f"  no qualifying stories:      {len(s.no_qualifying):>4}  ({', '.join(s.no_qualifying)}: "
+                     "fixed text, no LLM call)")  # fmt: skip
     if s.failed:
         lines.append("")
         lines.append("Retryable failures (nothing was stored; run `python -m ainews digest` again):")
@@ -588,6 +669,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     digest_parser.add_argument("--run", type=int, default=None, help="story run id (default: latest)")
     digest_parser.set_defaults(func=cmd_digest)
+
+    score_parser = subcommands.add_parser(
+        "score",
+        help="score stories for significance and release relevance (0-2 each), using an LLM",
+        description="Score every ready story of a story run (the latest by default) for "
+        "significance and release relevance, from the story's own content only. Stories "
+        "that already have a score are skipped unless --rescore is given; failed stories "
+        "store nothing and are scored on the next run. Nothing is filtered by the scores.",
+    )
+    score_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
+    score_parser.add_argument(
+        "--model", default=None, help="OpenAI model id (default: the one set in ainews/llm.py)"
+    )
+    score_target = score_parser.add_mutually_exclusive_group()
+    score_target.add_argument("--run", type=int, default=None, help="story run id (default: latest)")
+    score_target.add_argument("--all", action="store_true", help="every story run, e.g. to backfill")
+    score_parser.add_argument("--rescore", action="store_true", help="replace existing scores")
+    score_parser.set_defaults(func=cmd_score)
 
     narrate_parser = subcommands.add_parser(
         "narrate",

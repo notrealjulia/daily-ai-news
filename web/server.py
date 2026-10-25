@@ -40,7 +40,10 @@ def payload() -> dict:
     return {
         "data": {
             "header": dashboard.format_header(data),
-            "briefing_audio": _audio_url(dashboard.briefing_audio_path()),
+            # Only audio made for this run: a skipped category keeps an older day's file on disk.
+            "briefing_audio": _audio_url(dashboard.briefing_audio_path())
+            if any(c.narrated for c in data.categories.values())
+            else None,
             "empty_text": dashboard.empty_text(data.window_hours),
             "sources": dashboard.sources_caption(),
             "categories": [
@@ -48,7 +51,9 @@ def payload() -> dict:
                     "name": category.name,
                     "headline": category.headline,
                     "digest": category.digest,
-                    "audio": _audio_url(dashboard.category_audio_path(category.name)),
+                    "audio": _audio_url(dashboard.category_audio_path(category.name))
+                    if category.narrated
+                    else None,
                     "expander_label": dashboard.expander_label(category.story_count),
                     "stories": [
                         {

@@ -92,6 +92,17 @@ jobs:
           echo "::error::Cluster stories failed after 2 attempts."
           exit 1
 
+      - name: Score stories
+        # Before digests: `digest` leaves out stories whose significance + release is
+        # below 2. Exits non-zero only when every story fails (e.g. a bad API key).
+        run: |
+          python -m ainews score && exit 0
+          echo "::warning::Score stories failed; retrying once after 20s."
+          sleep 20
+          python -m ainews score && exit 0
+          echo "::error::Score stories failed after 2 attempts."
+          exit 1
+
       - name: Generate digests
         run: |
           python -m ainews digest && exit 0
