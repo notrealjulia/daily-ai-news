@@ -207,6 +207,14 @@ def test_an_invalid_headline_or_summary_is_rejected_not_repaired(answer, message
 # --- the significance + release filter ---------------------------------------
 
 
+def test_every_user_facing_output_uses_the_one_shared_filter():
+    # Website, written digest and audio must never disagree on what counts as noise.
+    from ainews import dashboard, defaults, narrate
+
+    assert digest.qualifies is narrate.qualifies is dashboard.qualifies is defaults.qualifies
+    assert [defaults.qualifies(t) for t in (None, 0, 1, 2, 3, 4)] == [True, False, False, True, True, True]
+
+
 def give_scores(conn, scores: dict[int, tuple[int, int]]) -> None:
     """story id -> (significance, release)."""
     for story_id, (significance, release) in scores.items():
