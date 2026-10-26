@@ -167,6 +167,26 @@ def test_categories_appear_in_grid_order_with_counts_digests_and_newest_first_st
     assert dashboard.empty_text(24) == "No stories in the last 24 hours."
 
 
+def test_noise_is_never_shown_like_spam_and_the_header_counts_only_what_is(conn):
+    add_run(conn, [
+        ("Research", "Kept: S1 R1.", [add_article(conn, "Kept scored")]),  # story 1
+        ("Research", "Noise: S1 R0.", [add_article(conn, "Noise one"), add_article(conn, "Noise two")]),  # story 2
+        ("Research", "Kept: unscored.", [add_article(conn, "Kept unscored")]),  # story 3
+        ("Other", "Noise: S0 R0.", [add_article(conn, "Noise three")]),  # story 4
+    ])  # fmt: skip
+    for story_id, (significance, release) in {1: (1, 1), 2: (1, 0), 4: (0, 0)}.items():
+        db.save_story_score(conn, story_id=story_id, significance=significance, release=release, reason="r",
+                            model="score-model", prompt_version="s3", created_at=NOW)  # fmt: skip
+    conn.commit()
+
+    view = dashboard.load_dashboard(conn)
+
+    assert [s.summary for s in view.categories["Research"].stories] == ["Kept: unscored.", "Kept: S1 R1."]
+    assert view.categories["Other"].stories == ()  # the page then says "No stories in the last 24 hours."
+    assert (view.total_stories, view.total_articles) == (2, 2)
+    assert len(db.stories_in_run(conn, 1)) == 4  # nothing deleted
+
+
 def test_last_updated_defaults_to_copenhagen_time_not_the_servers_own():
     # The bug this guards against: "Last updated" must show Copenhagen local time
     # regardless of what timezone the machine making the page is in - the GitHub

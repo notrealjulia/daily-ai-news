@@ -9,8 +9,9 @@ Independent of clustering: it reads a finished story run and never regroups anyt
       digest silently missing stories would mislead. Run `cluster` again first.
     - Only stories that qualify go into a digest: significance + release (see
       ainews.score) of at least MIN_SCORE_TOTAL. A story without a score (scoring failed,
-      or the run predates scoring) is kept rather than silently dropped. Nothing is
-      deleted: the stories, their scores and the dashboard's story lists are unchanged.
+      or the run predates scoring) is kept rather than silently dropped. The same rule
+      (defaults.qualifies) decides what narrate and the dashboard show. Nothing is
+      deleted: the stories and their scores stay in the database.
     - Each category with at least one story gets one digest. When none of its stories
       qualifies, that digest is the fixed NO_QUALIFYING_TEXT, written without an LLM
       call, so the run still counts as fully processed for the dashboard and narrate.
@@ -35,6 +36,7 @@ from datetime import datetime, timezone
 from typing import NamedTuple
 
 from ainews import db, enrich, ingest
+from ainews.defaults import qualifies
 from ainews.llm import StructuredLLM
 from ainews.prompts import DIGEST_INSTRUCTIONS as INSTRUCTIONS
 from ainews.prompts import DIGEST_PROMPT_VERSION
@@ -55,18 +57,8 @@ SCHEMA = {
 # The prompt asks for 6 to 12 words; this only catches an answer that has run away.
 MAX_HEADLINE_CHARS = 150
 
-# A story goes into its category's digest only when significance + release (0-2 each,
-# see ainews.score) reaches this: 0 or 1 is noise for the digest.
-MIN_SCORE_TOTAL = 2
-
 # The digest of a category none of whose stories qualifies; plain text, no LLM call.
 NO_QUALIFYING_TEXT = "No major developments in this category today."
-
-
-def qualifies(score_total: int | None) -> bool:
-    """Whether a story with this significance + release goes into the digest and the
-    narration. An unscored story (None) is kept rather than silently dropped."""
-    return score_total is None or score_total >= MIN_SCORE_TOTAL
 
 
 def build_input(category: str, stories: list[sqlite3.Row], counts: dict[str, int]) -> str:

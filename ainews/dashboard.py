@@ -11,7 +11,8 @@ dashboard incapable of running a stage or calling OpenAI, and a test enforces it
 
 The dashboard shows the newest story run that is fully processed (every story summarized
 and every category digested with the current digest prompt and default model). A run
-that is only partly done is never shown.
+that is only partly done is never shown. Of its stories, Spam and noise (significance +
+release below 2, defaults.qualifies) are never shown, and the header counts only what is.
 """
 
 import sqlite3
@@ -23,7 +24,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from ainews import db
-from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path
+from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path, qualifies
 from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # "Last updated" is always shown in this timezone, not the server's own: the previous
@@ -98,12 +99,15 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     )
     digests = {row["category"]: row for row in digest_rows}
     narrated = {row["category"] for row in db.narrations_for_run(conn, run["id"])}
+    score_totals = db.story_score_totals(conn, run["id"])
 
     grouped: dict[str, list[tuple[str, int, StoryView]]] = {name: [] for name in CATEGORY_ORDER}
     for story in db.stories_in_run(conn, run["id"]):
         links = links_by_story.get(story["id"], [])
         if story["category"] not in grouped or not links:
             continue  # Spam, or anything outside the six categories, is never shown
+        if not qualifies(score_totals.get(story["id"])):
+            continue  # noise (significance + release below 2) is never shown either
         view = StoryView(
             title=links[0]["title"],  # earliest article first
             summary=story["summary"],

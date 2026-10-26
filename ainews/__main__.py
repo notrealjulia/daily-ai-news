@@ -575,12 +575,12 @@ def _format_digest_outcome(o: "digest.DigestOutcome") -> str:
 
 
 def _format_digest_summary(s: "digest.DigestSummary") -> list[str]:
-    from ainews import digest
+    from ainews.defaults import MIN_SCORE_TOTAL
 
     lines = [
         "SUMMARY",
         f"  stories in the run:         {s.total_stories:>4}",
-        f"  left out (S+R < {digest.MIN_SCORE_TOTAL}):         {s.excluded_stories:>4}"
+        f"  left out (S+R < {MIN_SCORE_TOTAL}):         {s.excluded_stories:>4}"
         + (f"  ({s.unscored_stories} unscored kept in)" if s.unscored_stories else ""),
         f"  digests written this run:   {len(s.succeeded):>4}",
         f"  failed this run:            {len(s.failed):>4}",

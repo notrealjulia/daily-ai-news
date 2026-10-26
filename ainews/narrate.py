@@ -2,7 +2,7 @@
 
 MVP scope, deliberately small:
     - Only the stories that go into the written digest are narrated (significance +
-      release of at least 2, see digest.qualifies); a category with none is skipped.
+      release of at least 2, see defaults.qualifies); a category with none is skipped.
     - Every non-Spam category that has such stories today gets its own narration: title,
       summary, and each source article's full extracted body, not the category digest,
       which is a written summary and reads badly aloud. The article text is what lets
@@ -41,8 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ainews import db, enrich
-from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path
-from ainews.digest import qualifies
+from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path, qualifies
 from ainews.llm import LLMError, StructuredLLM, TextToSpeech, concat_audio_files
 from ainews.prompts import DIGEST_PROMPT_VERSION, NARRATE_INSTRUCTIONS, NARRATE_PROMPT_VERSION
 from ainews.stories import NON_SPAM_CATEGORIES, generate_validated
@@ -89,8 +88,8 @@ def current_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
 
 def category_stories_in_run(conn: sqlite3.Connection, run_id: int, category: str) -> list[CategoryStory]:
     """This run's qualifying stories in one category (title, summary, source articles),
-    newest first: the same stories the written digest uses (digest.qualifies), with the
-    titles the dashboard shows. The dashboard itself still lists every story."""
+    newest first: the same stories (defaults.qualifies) and titles the written digest and
+    the dashboard show for that category."""
     totals = db.story_score_totals(conn, run_id)
     links_by_story: dict[int, list[sqlite3.Row]] = {}
     for link in db.story_article_links(conn, run_id):

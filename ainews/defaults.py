@@ -12,6 +12,18 @@ from pathlib import Path
 # every enrichment, so results from different models can sit side by side.
 DEFAULT_MODEL = "gpt-5.6-luna"
 
+# De-noising: a story is shown on the dashboard, and goes into its category's digest and
+# narration, only when its significance + release (0-2 each, see ainews.score) reaches
+# this. Like Spam, a story below it is noise; it stays in the database but is never shown.
+MIN_SCORE_TOTAL = 2
+
+
+def qualifies(score_total: int | None) -> bool:
+    """Whether a story with this significance + release is shown. An unscored story
+    (None: scoring failed for it, or its run predates scoring) is kept, not dropped."""
+    return score_total is None or score_total >= MIN_SCORE_TOTAL
+
+
 # Where `narrate` writes each category's narration: one fixed file per category, always
 # overwritten. ainews.narrate and the dashboard both need this path; ainews.narrate can't
 # be imported here or from the dashboard, since it imports the OpenAI SDK.
