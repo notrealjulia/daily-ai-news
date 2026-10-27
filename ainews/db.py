@@ -745,6 +745,21 @@ def story_score_totals(conn: sqlite3.Connection, run_id: int) -> dict[int, int]:
     }
 
 
+def story_scores_in_run(conn: sqlite3.Connection, run_id: int) -> dict[int, tuple[int, int]]:
+    """story id -> (significance, release), for the stories in a run that have a score."""
+    return {
+        row["story_id"]: (row["significance"], row["release"])
+        for row in conn.execute(
+            """
+            SELECT sc.story_id, sc.significance, sc.release
+            FROM story_scores sc JOIN stories s ON s.id = sc.story_id
+            WHERE s.run_id = ?
+            """,
+            (run_id,),
+        )
+    }
+
+
 def save_story_score(
     conn: sqlite3.Connection,
     *,

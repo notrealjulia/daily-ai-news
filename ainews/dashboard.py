@@ -46,6 +46,10 @@ class StoryView:
     title: str  # the earliest article's title, in English (stories have no title of their own yet)
     summary: str
     sources: tuple[Source, ...]  # one per article, earliest first
+    # For the page's ranking (it sorts; nothing here does). None when the story is unscored.
+    significance: int | None = None
+    release: int | None = None
+    published: str | None = None  # the newest article's time, db.TIMESTAMP_FORMAT (UTC)
 
 
 @dataclass(frozen=True)
@@ -99,21 +103,25 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     )
     digests = {row["category"]: row for row in digest_rows}
     narrated = {row["category"] for row in db.narrations_for_run(conn, run["id"])}
-    score_totals = db.story_score_totals(conn, run["id"])
+    scores = db.story_scores_in_run(conn, run["id"])
 
     grouped: dict[str, list[tuple[str, int, StoryView]]] = {name: [] for name in CATEGORY_ORDER}
     for story in db.stories_in_run(conn, run["id"]):
         links = links_by_story.get(story["id"], [])
         if story["category"] not in grouped or not links:
             continue  # Spam, or anything outside the six categories, is never shown
-        if not qualifies(score_totals.get(story["id"])):
+        significance, release = scores.get(story["id"], (None, None))
+        if not qualifies(None if significance is None else significance + release):
             continue  # noise (significance + release below 2) is never shown either
+        newest = max(link["happened_at"] for link in links)
         view = StoryView(
             title=links[0]["title"],  # earliest article first
             summary=story["summary"],
             sources=tuple(Source(link["source"], _safe_url(link["url"])) for link in links),
+            significance=significance,
+            release=release,
+            published=newest,
         )
-        newest = max(link["happened_at"] for link in links)
         grouped[story["category"]].append((newest, story["id"], view))
 
     categories = {}

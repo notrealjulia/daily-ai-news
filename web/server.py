@@ -60,6 +60,9 @@ def payload() -> dict:
                             "title": story.title,
                             "summary": story.summary,
                             "sources": [{"name": s.name, "url": s.url} for s in story.sources],
+                            "significance": story.significance,
+                            "release": story.release,
+                            "published": story.published,
                         }
                         for story in category.stories
                     ],

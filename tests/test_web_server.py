@@ -53,6 +53,8 @@ def test_payload_with_a_completed_run(tmp_path, monkeypatch):
     assert research["expander_label"] == "View 1 story"
     assert research["audio"].startswith("/audio/research.mp3?v=")
     assert [story["title"] for story in research["stories"]] == ["A research article"]
+    story = research["stories"][0]  # unscored here; the page ranks by these fields
+    assert (story["significance"], story["release"]) == (None, None) and story["published"].endswith("Z")
     business = data["categories"][names.index("Business")]
     assert business["stories"] == [] and business["audio"] is None  # not narrated in this run
 

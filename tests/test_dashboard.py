@@ -182,6 +182,10 @@ def test_noise_is_never_shown_like_spam_and_the_header_counts_only_what_is(conn)
     view = dashboard.load_dashboard(conn)
 
     assert [s.summary for s in view.categories["Research"].stories] == ["Kept: unscored.", "Kept: S1 R1."]
+    # What the page ranks by: the scores (None when unscored) and the newest article's time.
+    published = (NOW - timedelta(hours=2)).strftime(db.TIMESTAMP_FORMAT)
+    assert [(s.significance, s.release, s.published) for s in view.categories["Research"].stories] == [
+        (None, None, published), (1, 1, published)]  # fmt: skip
     assert view.categories["Other"].stories == ()  # the page then says "No stories in the last 24 hours."
     assert (view.total_stories, view.total_articles) == (2, 2)
     assert len(db.stories_in_run(conn, 1)) == 4  # nothing deleted
