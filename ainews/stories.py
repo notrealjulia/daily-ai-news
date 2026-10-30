@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from ainews import db, enrich, ingest
-from ainews.llm import LLMError, StructuredLLM
+from ainews.llm import StructuredLLM
 from ainews.prompts import COMBINE_INSTRUCTIONS, GROUPING_INSTRUCTIONS, STORY_PROMPT_VERSION
 
 # GROUPING_INSTRUCTIONS, COMBINE_INSTRUCTIONS and STORY_PROMPT_VERSION live in
@@ -136,23 +136,7 @@ def parse_story_summary(raw: dict) -> enrich.Enrichment:
     return enrich.Enrichment(category, summary, english_title=None)  # stories have no title of their own
 
 
-def generate_validated(llm: StructuredLLM, *, instructions, input_text, schema_name, schema, parse):
-    """Ask the LLM and validate its answer: (result, None), or (None, reason it failed).
-
-    Any failure, including one nobody anticipated, is returned rather than raised, so
-    that one item failing can never stop the others.
-    """
-    try:
-        raw = llm.generate(
-            instructions=instructions, input_text=input_text, schema_name=schema_name, schema=schema
-        )
-        return parse(raw), None
-    except LLMError as e:
-        return None, str(e)
-    except enrich.InvalidOutput as e:
-        return None, f"invalid output: {e}"
-    except Exception as e:
-        return None, f"unexpected {type(e).__name__}: {e}"
+generate_validated = enrich.generate_validated  # digest imports it from here
 
 
 # --- The stage ---------------------------------------------------------------

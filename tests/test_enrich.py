@@ -308,6 +308,22 @@ def test_one_failing_article_does_not_stop_the_others(conn, failure, expected_er
     assert expected_error in summary.failed[0].error
 
 
+def test_a_summary_with_braces_is_rejected_and_asked_for_again_once(conn):
+    # Real failure: the model closed its JSON object inside the string, then kept talking.
+    leaked = dict(GOOD, summary="A company released a product.} Let's ensure valid JSON only.}assistantfinal {")
+    answers = iter([leaked, dict(GOOD)])
+    add_ready(conn, "Glitch")
+
+    recovered = FakeLLM(lambda _: next(answers))
+    assert len(run(conn, recovered).succeeded) == 1 and len(recovered.calls) == 2
+    assert stored(conn)[0][2] == GOOD["summary"]
+
+    add_ready(conn, "Stuck")
+    stuck = FakeLLM(lambda _: dict(leaked))
+    (failed,) = run(conn, stuck).failed
+    assert len(stuck.calls) == 2 and "contains { or }" in failed.error
+
+
 def test_a_failed_article_is_retried_on_the_next_run(conn):
     a = add_ready(conn, "One")
     outage = FakeLLM(lambda _: (_ for _ in ()).throw(llm.LLMError("APIConnectionError: Connection error.")))

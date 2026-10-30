@@ -91,6 +91,8 @@ def parse_category_and_summary(raw: dict) -> tuple[str, str]:
     if not isinstance(summary, str) or not summary.strip():
         raise InvalidOutput("the summary is empty")
     summary = summary.strip()
+    if "{" in summary or "}" in summary:  # the model broke out of its JSON and kept talking
+        raise InvalidOutput("the summary contains { or }")
     if len(summary) > MAX_SUMMARY_CHARS:
         raise InvalidOutput(f"the summary is {len(summary):,} chars (limit {MAX_SUMMARY_CHARS:,})")
     return category, summary
@@ -130,6 +132,28 @@ def parse_released_models(names) -> tuple[str, ...]:
         if len(name) > MAX_MODEL_NAME_CHARS:
             raise InvalidOutput(f"a released_models name is {len(name):,} chars (limit {MAX_MODEL_NAME_CHARS})")
     return tuple(dict.fromkeys(names))
+
+
+def generate_validated(llm: StructuredLLM, *, instructions, input_text, schema_name, schema, parse):
+    """Ask the LLM and validate its answer: (result, None), or (None, reason it failed).
+
+    An invalid answer is usually a one-off sampling glitch, so it is asked for once more
+    straight away. Any failure, including one nobody anticipated, is returned rather than
+    raised, so that one item failing can never stop the others.
+    """
+    for attempt in range(2):
+        try:
+            raw = llm.generate(
+                instructions=instructions, input_text=input_text, schema_name=schema_name, schema=schema
+            )
+            return parse(raw), None
+        except LLMError as e:
+            return None, str(e)
+        except InvalidOutput as e:
+            error = f"invalid output: {e}"
+        except Exception as e:
+            return None, f"unexpected {type(e).__name__}: {e}"
+    return None, error
 
 
 # --- The stage ---------------------------------------------------------------
@@ -187,22 +211,14 @@ def run_enrichment(
     )
 
     for row in waiting:
-        result: Enrichment | None = None
-        try:
-            raw = llm.generate(
-                instructions=INSTRUCTIONS,
-                input_text=build_input(row["source"], row["title"], row["body"]),
-                schema_name=SCHEMA_NAME,
-                schema=SCHEMA,
-            )
-            result = parse_enrichment(raw)
-            error = None
-        except LLMError as e:
-            error = str(e)
-        except InvalidOutput as e:
-            error = f"invalid output: {e}"
-        except Exception as e:  # one article must never stop the rest
-            error = f"unexpected {type(e).__name__}: {e}"
+        result, error = generate_validated(
+            llm,
+            instructions=INSTRUCTIONS,
+            input_text=build_input(row["source"], row["title"], row["body"]),
+            schema_name=SCHEMA_NAME,
+            schema=SCHEMA,
+            parse=parse_enrichment,
+        )
 
         if result is not None:
             db.insert_enrichment(
