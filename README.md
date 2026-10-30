@@ -8,13 +8,13 @@ See the site here: https://www.dailyainewsbriefing.com/
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     RSS["RSS / Atom feeds<br/>(feeds.toml)"]
     WEB["Article web pages"]
     OAI["OpenAI API"]
 
     subgraph STAGES["Pipeline stages: separate CLI commands, run in this order, no direct calls between them"]
-        direction LR
+        direction TB
         ING["1 · ingest"] ~~~ EXT["2 · extract"] ~~~ ENR["3 · enrich"] ~~~ CLU["4 · cluster"] ~~~ SCO["5 · score"] ~~~ DIG["6 · digest"] ~~~ NAR["7 · narrate"]
     end
 
@@ -40,9 +40,8 @@ flowchart LR
 ## Pipeline in detail
 
 ```mermaid
-flowchart LR
+flowchart TB
     FT["feeds.toml<br/>sources + strategy per feed"]
-    INS["inspect-feed<br/>evaluates a new source<br/>evidence only, changes nothing"]
     LLM["OpenAI<br/>(via llm.py)"]
 
     ING["ingest<br/>RSS → article rows<br/>24h window, URL dedup"]
@@ -60,7 +59,6 @@ flowchart LR
     SCT[("story_scores<br/>significance · release · reason")]
     DGT[("digests<br/>headline · summary")]
 
-    INS -.->|"you pick the strategy"| FT
     FT -.->|"strategy"| EXT
     FT --> ING --> ART1 --> EXT --> ART2 --> ENR --> ENRT --> CLU --> STO --> SCO --> SCT --> DIG --> DGT
     STO --> DIG
