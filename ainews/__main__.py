@@ -526,14 +526,16 @@ def cmd_narrate(args: argparse.Namespace) -> int:
     print()
     for line in _format_narration_summary(summary):
         print(line)
-    # A retryable per-category narration failure (reported above) must not stop the
-    # rest of the pipeline. A genuine stage failure - a config or database problem, or
-    # an unexpected exception escaping narrate_all_categories itself - exits non-zero
-    # via Python's normal uncaught-exception handling; one category's trouble is
-    # already isolated inside narrate_all_categories. (No fully processed run at all,
-    # above, still returns 1: that's a whole-stage precondition, not an isolated
-    # failure.) Every category failing is a stage failure too.
-    return _total_failure_exit(summary)
+    # Unlike the other stages, any failed category exits non-zero: a missing audio
+    # segment should turn the run red, not pass silently. The failure is still isolated
+    # inside narrate_all_categories - every other category is narrated and written, and
+    # the daily workflow's audio commit step runs even after this step fails.
+    if code := _total_failure_exit(summary):
+        return code
+    if summary.failed:
+        print("\nA category's narration failed: exiting non-zero (the other categories were written).")
+        return 1
+    return 0
 
 
 def _format_narration_outcome(o: "narrate.NarrationOutcome") -> str:

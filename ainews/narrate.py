@@ -142,6 +142,8 @@ def parse_script(raw: dict) -> str:
     if not isinstance(script, str) or not script.strip():
         raise enrich.InvalidOutput("the script is empty")
     script = script.strip()
+    if "\\" in script:  # e.g. a literal "\n\n" from double-escaped JSON, which TTS reads aloud
+        raise enrich.InvalidOutput("the script contains a backslash")
     if len(script) > MAX_SCRIPT_CHARS:
         raise enrich.InvalidOutput(f"the script is {len(script):,} chars (limit {MAX_SCRIPT_CHARS:,})")
     return script

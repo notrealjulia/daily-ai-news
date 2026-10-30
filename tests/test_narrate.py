@@ -210,8 +210,9 @@ def test_build_script_input_truncates_a_long_article_body(conn):
         ({}, "expected exactly script"),
         ({"script": "fine", "extra": "x"}, "expected exactly script"),
         ({"script": "x" * (narrate.MAX_SCRIPT_CHARS + 1)}, "the script is .* chars"),
+        ({"script": r"in several areas.\n\nOpenAI is also"}, "contains a backslash"),
     ],
-    ids=["empty", "missing", "extra-key", "runaway"],
+    ids=["empty", "missing", "extra-key", "runaway", "escaped-newlines"],
 )
 def test_an_invalid_script_answer_is_rejected_not_repaired(answer, message):
     with pytest.raises(enrich.InvalidOutput, match=message):
@@ -490,7 +491,8 @@ def test_narrate_command_reports_no_run_isolates_a_failure_and_writes_per_catego
     code = main(["narrate", "--db", str(db_path)])
     out = capsys.readouterr().out
 
-    assert code == 0  # a retryable per-category failure is not a stage failure
+    assert code == 1  # one failed category turns the run red, but the others are still written
+    assert "A category's narration failed" in out
     assert "ok" in out and "Research" in out and GOOD_SCRIPT["script"] in out  # printed for review
     assert "FAILED" in out and "Business" in out and "slow down" in out
     assert re.search(r"narrated this run:\s+1\b", out) and re.search(r"failed this run:\s+1\b", out)

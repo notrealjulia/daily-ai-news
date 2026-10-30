@@ -113,10 +113,9 @@ jobs:
           exit 1
 
       - name: Generate narration audio
-        # No continue-on-error needed: `narrate` itself now only exits non-zero for a
-        # genuine stage failure (no fully processed run, config/database problems), not
-        # for one category's isolated script/TTS failure, which it already reports and
-        # isolates internally.
+        # Exits non-zero if any category failed (after narrate's own retry of an invalid
+        # script), but only after every other category was narrated and written - so the
+        # retry below re-narrates all categories, and the commit step still runs.
         run: |
           python -m ainews narrate && exit 0
           echo "::warning::Generate narration audio failed; retrying once after 20s."
@@ -126,6 +125,10 @@ jobs:
           exit 1
 
       - name: Commit and push updated audio files
+        # Also after a failed step: a failed narrate category must not hold back the
+        # audio of the categories that succeeded (the dashboard already offers them).
+        # If an earlier stage failed, nothing in audio/ changed and this commits nothing.
+        if: ${{ !cancelled() }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

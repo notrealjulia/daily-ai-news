@@ -131,7 +131,7 @@ Foreign keys cascade on delete. The schema, migrations and every query live in `
 
 Each LLM stage has its own model and prompt version. Changing either makes the affected work eligible again alongside the old results; nothing is deleted.
 
-**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above, or one category's narration) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run), or enrich, score, digest or narrate failing on *every* item it attempted with none succeeding (e.g. a revoked API key) - exits non-zero.
+**Exit codes follow the same isolation.** An isolated item failure (a row in the "On failure" column above) is reported and retried, but exits `0`: it must not stop the rest of the pipeline. Narrate is the exception: one category failing still never stops the other categories, but the stage then exits `1`, so a missing audio segment turns the daily run red (the workflow still commits the audio that was made). Only a genuine stage failure - a config or database problem, an unexpected exception, cluster's grouping call itself failing (nothing was clustered that run), a stage refusing to run at all (digest on an incomplete story run, narrate with no fully processed run), or enrich, score, digest or narrate failing on *every* item it attempted with none succeeding (e.g. a revoked API key) - exits non-zero.
 
 ## Configuration
 
@@ -171,9 +171,10 @@ Both dashboard commands run from the project folder. The server reads the local 
 
 GitHub Actions (`.github/workflows/daily-ai-news.yml`) runs the whole pipeline daily against the
 hosted Turso database (`AINEWS_BACKEND=turso`): ingest, extract, enrich, cluster, score,
-digest, then narrate. No `continue-on-error` is needed for narrate: an isolated per-category
-script or TTS failure already exits `0` and is reported, rather than stopping the rest
-of the job or skipping the commit of the categories that *did* succeed.
+digest, then narrate. A per-category script or TTS failure makes narrate exit `1` (the run
+turns red), but only after the other categories were written, and the commit step runs
+even after a failed step (`if: !cancelled()`), so the categories that *did* succeed are
+still committed.
 
 The last step commits and pushes only `audio/*.mp3` (never `git add -A`) to the repo, as
 the `github-actions[bot]` identity, using the workflow's own `GITHUB_TOKEN` (needs
