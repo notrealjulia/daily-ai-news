@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from ainews import db, digest, llm
+from ainews import db, defaults, digest, llm
 from ainews.__main__ import main
 
 NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
@@ -260,12 +260,13 @@ def test_a_day_with_no_qualifying_stories_needs_no_llm_and_still_completes(monke
     conn = db.connect(db_path)
     run_id = make_run(conn, ("Research", "Minor.", 1, "ready"), ("Other", "Noise.", 1, "ready"))
     give_scores(conn, {1: (1, 0), 2: (0, 0)})
-    fake = FakeLLM()
-    monkeypatch.setattr(llm, "create", lambda model: fake)
+    fake, created_with = FakeLLM(), []
+    monkeypatch.setattr(llm, "create", lambda model: created_with.append(model) or fake)
 
     assert main(["digest", "--db", str(db_path)]) == 0
     out = capsys.readouterr().out
 
+    assert created_with == [defaults.BRIEFING_MODEL]  # digest uses the briefing model, not DEFAULT_MODEL
     assert fake.calls == []
     assert [(r[0], r[4]) for r in digest_rows(conn)] == [("Research", digest.NO_QUALIFYING_TEXT), ("Other", digest.NO_QUALIFYING_TEXT)]  # fmt: skip
     assert shows(out, r"left out \(S\+R < 2\):\s+2\b") and shows(out, r"no qualifying stories:\s+2\b")

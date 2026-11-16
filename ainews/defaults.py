@@ -11,6 +11,9 @@ from pathlib import Path
 # The model is a proposal until it has been tried on real articles; it is stored with
 # every enrichment, so results from different models can sit side by side.
 DEFAULT_MODEL = "gpt-5.6-luna"
+# digest and narrate (the briefing text and the audio script) use a stronger model; the
+# digest is looked up by it, so narrate and the dashboard find the digests it writes.
+BRIEFING_MODEL = "gpt-6.1-sol"
 
 # De-noising: a story is shown on the dashboard, and goes into its category's digest and
 # narration, only when its significance + release (0-2 each, see ainews.score) reaches

@@ -11,7 +11,7 @@ from ainews.__main__ import main
 from ainews.llm import LLMError
 
 NOW = datetime(2026, 9, 22, 12, 0, 0, tzinfo=timezone.utc)
-MODEL, PROMPT = defaults.DEFAULT_MODEL, prompts.DIGEST_PROMPT_VERSION
+MODEL, PROMPT = defaults.BRIEFING_MODEL, prompts.DIGEST_PROMPT_VERSION
 GOOD_SCRIPT = {"script": "A short, casual briefing."}
 
 
@@ -484,14 +484,15 @@ def test_narrate_command_reports_no_run_isolates_a_failure_and_writes_per_catego
             raise LLMError("RateLimitError (HTTP 429): slow down")
         return dict(GOOD_SCRIPT)
 
-    fake_llm, fake_tts = FakeLLM(respond), FakeTTS()
-    monkeypatch.setattr(llm, "create", lambda model: fake_llm)
+    fake_llm, fake_tts, created_with = FakeLLM(respond), FakeTTS(), []
+    monkeypatch.setattr(llm, "create", lambda model: created_with.append(model) or fake_llm)
     monkeypatch.setattr(llm, "create_tts", lambda: fake_tts)
 
     code = main(["narrate", "--db", str(db_path)])
     out = capsys.readouterr().out
 
     assert code == 1  # one failed category turns the run red, but the others are still written
+    assert created_with == [defaults.BRIEFING_MODEL]  # scripts use the briefing model, not DEFAULT_MODEL
     assert "A category's narration failed" in out
     assert "ok" in out and "Research" in out and GOOD_SCRIPT["script"] in out  # printed for review
     assert "FAILED" in out and "Business" in out and "slow down" in out

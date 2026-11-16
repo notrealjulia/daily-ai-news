@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ainews import db, ingest
+from ainews import db, defaults, ingest
 
 if TYPE_CHECKING:  # imported lazily below: extract needs Trafilatura, llm needs the OpenAI SDK
     from ainews import digest, enrich, extract, narrate, score, stories
@@ -384,7 +384,7 @@ def cmd_digest(args: argparse.Namespace) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     try:
-        client = llm.create(args.model or llm.DEFAULT_MODEL)
+        client = llm.create(args.model or defaults.BRIEFING_MODEL)
     except llm.LLMConfigError as e:
         print(f"Cannot write digests: {e}")
         return 2
@@ -509,7 +509,7 @@ def cmd_narrate(args: argparse.Namespace) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     try:
-        client = llm.create(args.model or llm.DEFAULT_MODEL)  # writes each script
+        client = llm.create(args.model or defaults.BRIEFING_MODEL)  # writes each script
         tts = llm.create_tts()  # turns each script into audio
     except llm.LLMConfigError as e:
         print(f"Cannot narrate: {e}")
@@ -667,7 +667,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     digest_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
     digest_parser.add_argument(
-        "--model", default=None, help="OpenAI model id (default: the one set in ainews/llm.py)"
+        "--model", default=None, help="OpenAI model id (default: BRIEFING_MODEL in ainews/defaults.py)"
     )
     digest_parser.add_argument("--run", type=int, default=None, help="story run id (default: latest)")
     digest_parser.set_defaults(func=cmd_digest)
@@ -702,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     narrate_parser.add_argument("--db", type=Path, default=db.DEFAULT_DB_PATH)
     narrate_parser.add_argument(
-        "--model", default=None, help="OpenAI model id for the scripts (default: the one set in ainews/llm.py)"
+        "--model", default=None, help="OpenAI model id for the scripts (default: BRIEFING_MODEL in ainews/defaults.py)"
     )
     narrate_parser.set_defaults(func=cmd_narrate)
 

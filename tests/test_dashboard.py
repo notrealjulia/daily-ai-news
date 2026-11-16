@@ -14,7 +14,7 @@ from ainews import dashboard, db, defaults, prompts
 UTC = timezone.utc
 NOW = datetime(2026, 9, 20, 15, 0, 0, tzinfo=UTC)
 ROOT = Path(__file__).resolve().parent.parent
-MODEL, PROMPT = defaults.DEFAULT_MODEL, prompts.DIGEST_PROMPT_VERSION
+MODEL, PROMPT = defaults.BRIEFING_MODEL, prompts.DIGEST_PROMPT_VERSION
 
 
 @pytest.fixture

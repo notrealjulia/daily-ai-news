@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from ainews import db
-from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path, qualifies
+from ainews.defaults import BRIEFING_AUDIO_PATH, BRIEFING_MODEL, CATEGORY_ORDER, audio_path, qualifies
 from ainews.prompts import DIGEST_PROMPT_VERSION
 
 # "Last updated" is always shown in this timezone, not the server's own: the previous
@@ -90,7 +90,7 @@ def _safe_url(url: str) -> str | None:
 def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     """The dashboard for the newest fully processed story run, or None if there isn't one."""
     run = db.latest_dashboard_run(
-        conn, digest_model=DEFAULT_MODEL, digest_prompt_version=DIGEST_PROMPT_VERSION
+        conn, digest_model=BRIEFING_MODEL, digest_prompt_version=DIGEST_PROMPT_VERSION
     )
     if run is None:
         return None
@@ -99,7 +99,7 @@ def load_dashboard(conn: sqlite3.Connection) -> Dashboard | None:
     for link in db.story_article_links(conn, run["id"]):
         links_by_story.setdefault(link["story_id"], []).append(link)
     digest_rows = db.digests_for_run(
-        conn, run["id"], model=DEFAULT_MODEL, prompt_version=DIGEST_PROMPT_VERSION
+        conn, run["id"], model=BRIEFING_MODEL, prompt_version=DIGEST_PROMPT_VERSION
     )
     digests = {row["category"]: row for row in digest_rows}
     narrated = {row["category"] for row in db.narrations_for_run(conn, run["id"])}

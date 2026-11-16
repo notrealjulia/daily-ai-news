@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ainews import db, enrich
-from ainews.defaults import BRIEFING_AUDIO_PATH, CATEGORY_ORDER, DEFAULT_MODEL, audio_path, qualifies
+from ainews.defaults import BRIEFING_AUDIO_PATH, BRIEFING_MODEL, CATEGORY_ORDER, audio_path, qualifies
 from ainews.llm import LLMError, StructuredLLM, TextToSpeech, concat_audio_files
 from ainews.prompts import DIGEST_PROMPT_VERSION, NARRATE_INSTRUCTIONS, NARRATE_PROMPT_VERSION
 from ainews.stories import NON_SPAM_CATEGORIES, generate_validated
@@ -82,7 +82,7 @@ class CategoryStory:
 def current_run(conn: sqlite3.Connection) -> sqlite3.Row | None:
     """The newest fully processed story run - the same one the dashboard and digests use."""
     return db.latest_dashboard_run(
-        conn, digest_model=DEFAULT_MODEL, digest_prompt_version=DIGEST_PROMPT_VERSION
+        conn, digest_model=BRIEFING_MODEL, digest_prompt_version=DIGEST_PROMPT_VERSION
     )
 
 

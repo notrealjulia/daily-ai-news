@@ -137,7 +137,7 @@ Each LLM stage has its own model and prompt version. Changing either makes the a
 - **`.env`**: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY` (see `.env.example`). It is gitignored, and a variable in the real environment takes precedence.
 - **Database backend**: local SQLite (`ainews.db`) by default. Setting `AINEWS_BACKEND=turso` in the real environment (not in `.env`, on purpose, so having the credentials in `.env` never switches your local runs to the hosted database) makes every command and the dashboard's server use the hosted Turso database instead, with `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` from the environment or `.env`. Only `db.py` knows which one is in use. On Turso, read-only is enforced by the token, not by the code: the deploy's snapshot step currently reuses the pipeline's `TURSO_AUTH_TOKEN` secret, so a separate read-only token for it would be safer. The two databases are independent; nothing syncs them.
 - **`web/`**: the React dashboard (Vite, TypeScript, Tailwind CSS, shadcn/ui). In development, `vite.config.ts` proxies `/dashboard.json` and `/audio` to `web/server.py` on `localhost:8000`.
-- **Defaults in code**: the 24h window (`ingest.py`); the default model `gpt-5.6-luna` (`defaults.py`, which the dashboard shares); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v6`, cluster `v2`, score `s3`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
+- **Defaults in code**: the 24h window (`ingest.py`); the models in `defaults.py`, which the dashboard shares: `gpt-5.6-luna` for enrich, cluster and score, and `gpt-6.1-sol` for digest and narrate (`BRIEFING_MODEL`; the dashboard and narrate look digests up by it); low reasoning effort (`llm.py`); every prompt's instructions and prompt version, in one place: enrich `v6`, cluster `v2`, score `s3`, digest `v3` (`prompts.py`, likewise import-free and dashboard-safe). LLM stages accept `--model`; the pipeline commands accept `--db` (default `ainews.db` in the current directory), and `ingest` and `extract` accept `--feeds`.
 
 ## Running
 
@@ -219,7 +219,7 @@ ainews/
   prompts.py      every prompt's instructions and prompt version (no imports)
   inspect_feed.py onboarding tool
   dashboard.py    what the dashboard shows (no SQL, no web framework)
-  defaults.py     default model, audio_path(category), the S+R threshold (no imports)
+  defaults.py     models, audio_path(category), the S+R threshold (no imports)
 web/              the React dashboard (Vite + shadcn/ui), deployed to Azure Static Web Apps
   server.py       read-only JSON + audio server for local development; --snapshot writes the deploy's data
   src/            the page (App.tsx) and its Windows 98-style components
